@@ -665,7 +665,59 @@ void CheckEntryInvalidation(MqlRates &bar)
    if(g_entrySweepPrice <= 0.0) return;
    if(!HasOpenPosition()) { g_entryDir = 0; g_entrySweepPrice = 0.0; return; }
 
-   //--- Phase 1: Sweep update (deeper sweep) ---
+   //--- Phase 1: Body break check FIRST (gunakan sweep level saat ini) ---
+   // Body break = close menembus sweep level → premise gagal → TP to BE
+   // BUY:  close < sweep level
+   // SELL: close > sweep level
+   bool bodyBreak = false;
+   if(g_entryDir == 1 && bar.close < g_entrySweepPrice)
+      bodyBreak = true;
+   else if(g_entryDir == -1 && bar.close > g_entrySweepPrice)
+      bodyBreak = true;
+
+   if(bodyBreak)
+     {
+      PrintFormat("AjipIDM: BODY BREAK. Dir=%s, sweep=%.5f, close=%.5f — modifying TP to break-even",
+                  g_entryDir == 1 ? "BUY" : "SELL", g_entrySweepPrice, bar.close);
+
+      // Modify TP to entry price (break-even) on all positions matching magic
+      for(int i = PositionsTotal() - 1; i >= 0; i--)
+        {
+         ulong ticket = PositionGetTicket(i);
+         if(ticket == 0) continue;
+         if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+         if((long)PositionGetInteger(POSITION_MAGIC) != InpMagicNumber) continue;
+
+         double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+         double currentTP  = PositionGetDouble(POSITION_TP);
+         double sl         = PositionGetDouble(POSITION_SL);
+
+         // Only modify if TP is not already at BE
+         if(MathAbs(currentTP - entryPrice) < g_point)
+           {
+            PrintFormat("AjipIDM: TP already at BE for ticket %I64u", ticket);
+            continue;
+           }
+
+         if(trade.PositionModify(ticket, sl, entryPrice))
+           {
+            PrintFormat("AjipIDM: TP modified to BE (%.5f) for ticket %I64u", entryPrice, ticket);
+           }
+         else
+           {
+            PrintFormat("AjipIDM: Failed to modify TP. retcode=%d (%s)",
+                        trade.ResultRetcode(), trade.ResultRetcodeDescription());
+           }
+        }
+
+      // Invalidate tracking (don't re-trigger)
+      g_entryDir = 0;
+      g_entrySweepPrice = 0.0;
+      return;
+     }
+
+   //--- Phase 2: Sweep update (only if NOT body break) ---
+   // Bar tidak body-break, tapi mungkin sweep lebih dalam → update level
    if(g_entryDir == 1)  // BUY
      {
       if(bar.low < g_entrySweepPrice)
@@ -682,52 +734,6 @@ void CheckEntryInvalidation(MqlRates &bar)
          PrintFormat("AjipIDM: Sweep update (SELL). New level=%.5f", g_entrySweepPrice);
         }
      }
-
-   //--- Phase 2: Body break → modify TP to break-even ---
-   bool bodyBreak = false;
-   if(g_entryDir == 1 && bar.close < g_entrySweepPrice)
-      bodyBreak = true;
-   else if(g_entryDir == -1 && bar.close > g_entrySweepPrice)
-      bodyBreak = true;
-
-   if(!bodyBreak) return;
-
-   PrintFormat("AjipIDM: BODY BREAK. Dir=%s, sweep=%.5f, close=%.5f — modifying TP to break-even",
-               g_entryDir == 1 ? "BUY" : "SELL", g_entrySweepPrice, bar.close);
-
-   // Modify TP to entry price (break-even) on all positions matching magic
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
-     {
-      ulong ticket = PositionGetTicket(i);
-      if(ticket == 0) continue;
-      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-      if((long)PositionGetInteger(POSITION_MAGIC) != InpMagicNumber) continue;
-
-      double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-      double currentTP  = PositionGetDouble(POSITION_TP);
-      double sl         = PositionGetDouble(POSITION_SL);
-
-      // Only modify if TP is not already at BE
-      if(MathAbs(currentTP - entryPrice) < g_point)
-        {
-         PrintFormat("AjipIDM: TP already at BE for ticket %I64u", ticket);
-         continue;
-        }
-
-      if(trade.PositionModify(ticket, sl, entryPrice))
-        {
-         PrintFormat("AjipIDM: TP modified to BE (%.5f) for ticket %I64u", entryPrice, ticket);
-        }
-      else
-        {
-         PrintFormat("AjipIDM: Failed to modify TP. retcode=%d (%s)",
-                     trade.ResultRetcode(), trade.ResultRetcodeDescription());
-        }
-     }
-
-   // Invalidate tracking (don't re-trigger)
-   g_entryDir = 0;
-   g_entrySweepPrice = 0.0;
   }
 
 //==================================================================
