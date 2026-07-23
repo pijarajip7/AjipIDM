@@ -23,6 +23,8 @@ input ulong           InpDeviation   = 10;          // Slippage (points)
 input long            InpMagicNumber = 99001;       // Magic number
 input bool            InpDrawLines   = true;        // Draw structure lines on chart
 input int             InpMaxLines    = 500;         // Max trendline objects (cleanup)
+input double          InpRR          = 1.0;         // Risk:Reward ratio (1=1:1, 2=1:2, 0.5=1:0.5)
+input int             InpMinTpPoints = 0;           // Min TP distance in points (skip if below)
 
 //==================================================================
 // ENUMS & STRUCTS
@@ -790,8 +792,19 @@ void CheckIdmTaken(MqlRates &bar)
          double tp = GetLastSHDPrice();
          if(tp > 0.0 && bar.close < tp)
            {
-            double sl = 2.0 * bar.close - tp;
-            if(OpenTrade(true, bar.close, sl, tp))
+            // RR: SL distance = TP distance / RR
+            double tpDistance = tp - bar.close;
+            double slDistance = tpDistance / InpRR;
+            double sl = bar.close - slDistance;
+
+            // Min TP points filter
+            double tpPoints = tpDistance / g_point;
+            if(InpMinTpPoints > 0 && tpPoints < InpMinTpPoints)
+              {
+               PrintFormat("AjipIDM: BUY skip — TP points %.0f < %d (tp=%.5f, close=%.5f)",
+                           tpPoints, InpMinTpPoints, tp, bar.close);
+              }
+            else if(OpenTrade(true, bar.close, sl, tp))
               {
                // Track for invalidation: sweep level = low of sweep bar
                g_entrySweepPrice = bar.low;
@@ -814,8 +827,19 @@ void CheckIdmTaken(MqlRates &bar)
          double tp = GetLastSLUPrice();
          if(tp > 0.0 && bar.close > tp)
            {
-            double sl = 2.0 * bar.close - tp;
-            if(OpenTrade(false, bar.close, sl, tp))
+            // RR: SL distance = TP distance / RR
+            double tpDistance = bar.close - tp;
+            double slDistance = tpDistance / InpRR;
+            double sl = bar.close + slDistance;
+
+            // Min TP points filter
+            double tpPoints = tpDistance / g_point;
+            if(InpMinTpPoints > 0 && tpPoints < InpMinTpPoints)
+              {
+               PrintFormat("AjipIDM: SELL skip — TP points %.0f < %d (tp=%.5f, close=%.5f)",
+                           tpPoints, InpMinTpPoints, tp, bar.close);
+              }
+            else if(OpenTrade(false, bar.close, sl, tp))
               {
                // Track for invalidation: sweep level = high of sweep bar
                g_entrySweepPrice = bar.high;
