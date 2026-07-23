@@ -17,13 +17,13 @@
 // INPUTS
 //==================================================================
 input ENUM_TIMEFRAMES InpTimeframe   = PERIOD_M15;  // Working timeframe
-input double          InpRiskAmount  = 100.0;       // Risk amount per trade (USD)
+input double          InpTargetAmount = 100.0;      // Target profit per trade (USD)
 input int             InpCandlesInit = 50;          // Lookback candles for initial trend
 input ulong           InpDeviation   = 10;          // Slippage (points)
 input long            InpMagicNumber = 99001;       // Magic number
 input bool            InpDrawLines   = true;        // Draw structure lines on chart
 input int             InpMaxLines    = 500;         // Max trendline objects (cleanup)
-input double          InpRR          = 1.0;         // Risk:Reward ratio (1=1:1, 2=1:2, 0.5=1:0.5)
+input double          InpRR          = 1.0;         // Risk:Reward (1=1:1, 2=1:2, 0=NO SL)
 input int             InpMinTpPoints = 0;           // Min TP distance in points (skip if below)
 
 //==================================================================
@@ -83,9 +83,14 @@ BaseCandle     g_outsideBar;       // the outside bar (both extremes)
 double         g_idmPrice = 0.0;   // current idm level
 bool           g_idmTaken = false; // idm has been taken this cycle
 
-// Entry invalidation tracking
-double         g_entrySweepPrice = 0.0;  // idm level at entry (body-break = invalid)
-int            g_entryDir = 0;           // 0=none, 1=BUY, -1=SELL
+// Entry invalidation tracking (multi-position, per-ticket)
+struct EntryTracker
+  {
+   ulong    ticket;         // position ticket
+   double   sweepPrice;     // sweep level (bar high/low that took idm)
+   int      dir;            // 1=BUY, -1=SELL
+  };
+EntryTracker  g_entries[];
 
 // Bar tracking
 datetime       g_lastBarTime = 0;  // for new-bar detection within OnTick
@@ -644,96 +649,106 @@ void UpdateIdm()
   }
 
 //==================================================================
-// CHECK ENTRY INVALIDATION
-// Entry premise: idm sweep (wick takes idm) but close reclaims.
-//
-// Phase 1 — SWEEP UPDATE:
-//   Jika bar berikutnya sweep lebih dalam, update sweep level.
-//   BUY:  bar.low  < g_entrySweepPrice → update
-//   SELL: bar.high > g_entrySweepPrice → update
-//
-// Phase 2 — BODY BREAK (invalidation):
-//   Close menembus sweep level → premise gagal → modify TP to break-even.
-//   BUY:  close < sweep level → TP = entry price
-//   SELL: close > sweep level → TP = entry price
-//
-// SL tetap. Posisi tidak di-close — biarkan broker manage TP(BE)/SL.
+// CHECK ENTRY INVALIDATION (multi-position)
+// For each tracked entry:
+//   Phase 1: Body break check (close menembus sweep level) → TP to BE
+//   Phase 2: If not body break, update sweep level if deeper
+// Auto-cleanup: remove entries whose position no longer exists.
 //==================================================================
 void CheckEntryInvalidation(MqlRates &bar)
   {
-   if(g_entryDir == 0) return;
-   if(g_entrySweepPrice <= 0.0) return;
-   if(!HasOpenPosition()) { g_entryDir = 0; g_entrySweepPrice = 0.0; return; }
+   int n = ArraySize(g_entries);
+   if(n == 0) return;
 
-   //--- Phase 1: Body break check FIRST (gunakan sweep level saat ini) ---
-   // Body break = close menembus sweep level → premise gagal → TP to BE
-   // BUY:  close < sweep level
-   // SELL: close > sweep level
-   bool bodyBreak = false;
-   if(g_entryDir == 1 && bar.close < g_entrySweepPrice)
-      bodyBreak = true;
-   else if(g_entryDir == -1 && bar.close > g_entrySweepPrice)
-      bodyBreak = true;
-
-   if(bodyBreak)
+   for(int i = n - 1; i >= 0; i--)
      {
-      PrintFormat("AjipIDM: BODY BREAK. Dir=%s, sweep=%.5f, close=%.5f — modifying TP to break-even",
-                  g_entryDir == 1 ? "BUY" : "SELL", g_entrySweepPrice, bar.close);
+      ulong ticket = g_entries[i].ticket;
 
-      // Modify TP to entry price (break-even) on all positions matching magic
-      for(int i = PositionsTotal() - 1; i >= 0; i--)
+      // Check if position still exists
+      if(!PositionSelectByTicket(ticket))
         {
-         ulong ticket = PositionGetTicket(i);
-         if(ticket == 0) continue;
-         if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-         if((long)PositionGetInteger(POSITION_MAGIC) != InpMagicNumber) continue;
+         // Position closed (TP/SL hit) — remove from tracking
+         RemoveEntry(i);
+         continue;
+        }
+
+      double sweepPrice = g_entries[i].sweepPrice;
+      int    dir        = g_entries[i].dir;
+
+      //--- Phase 1: Body break check FIRST ---
+      bool bodyBreak = false;
+      if(dir == 1 && bar.close < sweepPrice)
+         bodyBreak = true;
+      else if(dir == -1 && bar.close > sweepPrice)
+         bodyBreak = true;
+
+      if(bodyBreak)
+        {
+         PrintFormat("AjipIDM: BODY BREAK. Ticket=%I64u Dir=%s, sweep=%.5f, close=%.5f — TP to BE",
+                     ticket, dir == 1 ? "BUY" : "SELL", sweepPrice, bar.close);
 
          double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
          double currentTP  = PositionGetDouble(POSITION_TP);
          double sl         = PositionGetDouble(POSITION_SL);
 
          // Only modify if TP is not already at BE
-         if(MathAbs(currentTP - entryPrice) < g_point)
+         if(MathAbs(currentTP - entryPrice) >= g_point)
            {
-            PrintFormat("AjipIDM: TP already at BE for ticket %I64u", ticket);
-            continue;
+            if(trade.PositionModify(ticket, sl, entryPrice))
+               PrintFormat("AjipIDM: TP modified to BE (%.5f) for ticket %I64u", entryPrice, ticket);
+            else
+               PrintFormat("AjipIDM: Failed to modify TP for %I64u. retcode=%d (%s)",
+                           ticket, trade.ResultRetcode(), trade.ResultRetcodeDescription());
            }
 
-         if(trade.PositionModify(ticket, sl, entryPrice))
-           {
-            PrintFormat("AjipIDM: TP modified to BE (%.5f) for ticket %I64u", entryPrice, ticket);
-           }
-         else
-           {
-            PrintFormat("AjipIDM: Failed to modify TP. retcode=%d (%s)",
-                        trade.ResultRetcode(), trade.ResultRetcodeDescription());
-           }
+         // Remove from tracking (invalidated, don't re-check)
+         RemoveEntry(i);
+         continue;
         }
 
-      // Invalidate tracking (don't re-trigger)
-      g_entryDir = 0;
-      g_entrySweepPrice = 0.0;
-      return;
-     }
-
-   //--- Phase 2: Sweep update (only if NOT body break) ---
-   // Bar tidak body-break, tapi mungkin sweep lebih dalam → update level
-   if(g_entryDir == 1)  // BUY
-     {
-      if(bar.low < g_entrySweepPrice)
+      //--- Phase 2: Sweep update (only if NOT body break) ---
+      if(dir == 1)  // BUY
         {
-         g_entrySweepPrice = bar.low;
-         PrintFormat("AjipIDM: Sweep update (BUY). New level=%.5f", g_entrySweepPrice);
+         if(bar.low < sweepPrice)
+           {
+            g_entries[i].sweepPrice = bar.low;
+            PrintFormat("AjipIDM: Sweep update (BUY) ticket=%I64u. New level=%.5f", ticket, bar.low);
+           }
         }
-     }
-   else if(g_entryDir == -1)  // SELL
-     {
-      if(bar.high > g_entrySweepPrice)
+      else if(dir == -1)  // SELL
         {
-         g_entrySweepPrice = bar.high;
-         PrintFormat("AjipIDM: Sweep update (SELL). New level=%.5f", g_entrySweepPrice);
+         if(bar.high > sweepPrice)
+           {
+            g_entries[i].sweepPrice = bar.high;
+            PrintFormat("AjipIDM: Sweep update (SELL) ticket=%I64u. New level=%.5f", ticket, bar.high);
+           }
         }
      }
+  }
+
+//==================================================================
+// ADD ENTRY to tracking
+//==================================================================
+void AddEntry(ulong ticket, double sweepPrice, int dir)
+  {
+   int n = ArraySize(g_entries);
+   ArrayResize(g_entries, n + 1);
+   g_entries[n].ticket      = ticket;
+   g_entries[n].sweepPrice  = sweepPrice;
+   g_entries[n].dir         = dir;
+  }
+
+//==================================================================
+// REMOVE ENTRY at index
+//==================================================================
+void RemoveEntry(int idx)
+  {
+   int n = ArraySize(g_entries);
+   if(idx < 0 || idx >= n) return;
+
+   for(int i = idx; i < n - 1; i++)
+      g_entries[i] = g_entries[i + 1];
+   ArrayResize(g_entries, n - 1);
   }
 
 //==================================================================
@@ -745,7 +760,7 @@ void CheckIdmTaken(MqlRates &bar)
   {
    if(g_idmTaken) return;
    if(g_idmPrice <= 0.0) return;
-   if(!g_initMode && HasOpenPosition()) return; // skip position check during init
+   // Multi-position: no HasOpenPosition() check
 
    bool taken    = false;
    bool doEntry  = false;
@@ -798,10 +813,14 @@ void CheckIdmTaken(MqlRates &bar)
          double tp = GetLastSHDPrice();
          if(tp > 0.0 && bar.close < tp)
            {
-            // RR: SL distance = TP distance / RR
             double tpDistance = tp - bar.close;
-            double slDistance = tpDistance / InpRR;
-            double sl = bar.close - slDistance;
+            // RR=0 → no SL
+            double sl = 0.0;
+            if(InpRR > 0.0)
+              {
+               double slDistance = tpDistance / InpRR;
+               sl = bar.close - slDistance;
+              }
 
             // Min TP points filter
             double tpPoints = tpDistance / g_point;
@@ -810,11 +829,11 @@ void CheckIdmTaken(MqlRates &bar)
                PrintFormat("AjipIDM: BUY skip — TP points %.0f < %d (tp=%.5f, close=%.5f)",
                            tpPoints, InpMinTpPoints, tp, bar.close);
               }
-            else if(OpenTrade(true, bar.close, sl, tp))
+            else
               {
-               // Track for invalidation: sweep level = low of sweep bar
-               g_entrySweepPrice = bar.low;
-               g_entryDir = 1; // BUY
+               ulong ticket = OpenTrade(true, bar.close, sl, tp);
+               if(ticket > 0)
+                  AddEntry(ticket, bar.low, 1); // BUY, sweep = bar low
               }
            }
          else
@@ -833,10 +852,14 @@ void CheckIdmTaken(MqlRates &bar)
          double tp = GetLastSLUPrice();
          if(tp > 0.0 && bar.close > tp)
            {
-            // RR: SL distance = TP distance / RR
             double tpDistance = bar.close - tp;
-            double slDistance = tpDistance / InpRR;
-            double sl = bar.close + slDistance;
+            // RR=0 → no SL
+            double sl = 0.0;
+            if(InpRR > 0.0)
+              {
+               double slDistance = tpDistance / InpRR;
+               sl = bar.close + slDistance;
+              }
 
             // Min TP points filter
             double tpPoints = tpDistance / g_point;
@@ -845,11 +868,11 @@ void CheckIdmTaken(MqlRates &bar)
                PrintFormat("AjipIDM: SELL skip — TP points %.0f < %d (tp=%.5f, close=%.5f)",
                            tpPoints, InpMinTpPoints, tp, bar.close);
               }
-            else if(OpenTrade(false, bar.close, sl, tp))
+            else
               {
-               // Track for invalidation: sweep level = high of sweep bar
-               g_entrySweepPrice = bar.high;
-               g_entryDir = -1; // SELL
+               ulong ticket = OpenTrade(false, bar.close, sl, tp);
+               if(ticket > 0)
+                  AddEntry(ticket, bar.high, -1); // SELL, sweep = bar high
               }
            }
          else
@@ -1071,84 +1094,87 @@ double GetLastSLUPrice()
   }
 
 //==================================================================
-// OPEN TRADE
+// OPEN TRADE — returns ticket (0 = failed)
 //==================================================================
-bool OpenTrade(bool isBuy, double entry, double slRaw, double tpRaw)
+ulong OpenTrade(bool isBuy, double entry, double slRaw, double tpRaw)
   {
    // Normalize prices
-   slRaw = NormalizeDouble(slRaw, g_digits);
    tpRaw = NormalizeDouble(tpRaw, g_digits);
+
+   // SL=0 means no SL (InpRR=0)
+   bool   hasSL = (slRaw > 0.0);
+   double slNorm = 0.0;
+   if(hasSL)
+      slNorm = NormalizeDouble(slRaw, g_digits);
 
    // Validate TP direction
    if(isBuy && tpRaw <= entry)
      {
       PrintFormat("AjipIDM: BUY skip — TP %.5f <= entry %.5f", tpRaw, entry);
-      return(false);
+      return(0);
      }
    if(!isBuy && tpRaw >= entry)
      {
       PrintFormat("AjipIDM: SELL skip — TP %.5f >= entry %.5f", tpRaw, entry);
-      return(false);
+      return(0);
      }
 
-   // Calculate lot size from risk amount and SL distance
-   double slDistance = MathAbs(entry - slRaw);
-   if(slDistance <= 0.0)
+   // Calculate lot size from target amount and TP distance
+   double tpDistance = MathAbs(tpRaw - entry);
+   if(tpDistance <= 0.0)
      {
-      Print("AjipIDM: SL distance is zero — cannot calculate lot");
-      return(false);
+      Print("AjipIDM: TP distance is zero — cannot calculate lot");
+      return(0);
      }
 
-   double lot = CalcLot(slDistance);
+   double lot = CalcLot(tpDistance);
    if(lot <= 0.0)
      {
-      PrintFormat("AjipIDM: Lot calculation failed for slDistance=%.5f", slDistance);
-      return(false);
+      PrintFormat("AjipIDM: Lot calculation failed for tpDistance=%.5f", tpDistance);
+      return(0);
      }
 
    // Get current price for market order
    MqlTick tick;
-   if(!SymbolInfoTick(_Symbol, tick)) return(false);
+   if(!SymbolInfoTick(_Symbol, tick)) return(0);
 
    bool ok;
    if(isBuy)
      {
-      ok = trade.Buy(lot, _Symbol, tick.ask, slRaw, tpRaw, "AjipIDM BUY");
+      ok = trade.Buy(lot, _Symbol, tick.ask, slNorm, tpRaw, "AjipIDM BUY");
      }
    else
      {
-      ok = trade.Sell(lot, _Symbol, tick.bid, slRaw, tpRaw, "AjipIDM SELL");
+      ok = trade.Sell(lot, _Symbol, tick.bid, slNorm, tpRaw, "AjipIDM SELL");
      }
 
    if(ok)
      {
-      PrintFormat("AjipIDM: %s opened. Lot=%.2f, Entry=%.5f, SL=%.5f, TP=%.5f",
-                  isBuy ? "BUY" : "SELL", lot, entry, slRaw, tpRaw);
-     }
-   else
-     {
-      PrintFormat("AjipIDM: Order failed. retcode=%d (%s)",
-                  trade.ResultRetcode(), trade.ResultRetcodeDescription());
+      ulong ticket = trade.ResultOrder();
+      PrintFormat("AjipIDM: %s opened. Ticket=%I64u, Lot=%.2f, Entry=%.5f, SL=%s, TP=%.5f",
+                  isBuy ? "BUY" : "SELL", ticket, lot, entry,
+                  hasSL ? DoubleToString(slNorm, g_digits) : "NONE", tpRaw);
+      return(ticket);
      }
 
-   return(ok);
+   PrintFormat("AjipIDM: Order failed. retcode=%d (%s)",
+               trade.ResultRetcode(), trade.ResultRetcodeDescription());
+   return(0);
   }
 
 //==================================================================
-// CALC LOT — from risk amount and SL distance
+// CALC LOT — from target profit and TP distance
+// gainPerLot = (tpDistance / tickSize) * tickValue
+// lot = targetAmount / gainPerLot
 //==================================================================
-double CalcLot(double slDistance)
+double CalcLot(double tpDistance)
   {
-   // tickValue covers tickSize price movement.
-   // slDistance / tickSize = number of ticks of risk.
-   // loss = (slDistance / tickSize) * tickValue * lot
-   // lot = riskAmount / ((slDistance / tickSize) * tickValue)
    if(g_tickSize <= 0.0 || g_tickValue <= 0.0) return(0.0);
 
-   double lossPerLot = (slDistance / g_tickSize) * g_tickValue;
-   if(lossPerLot <= 0.0) return(0.0);
+   double gainPerLot = (tpDistance / g_tickSize) * g_tickValue;
+   if(gainPerLot <= 0.0) return(0.0);
 
-   double lot = InpRiskAmount / lossPerLot;
+   double lot = InpTargetAmount / gainPerLot;
 
    // Normalize to volume step
    lot = MathFloor(lot / g_volStep) * g_volStep;
@@ -1156,22 +1182,6 @@ double CalcLot(double slDistance)
    if(lot > g_volMax) lot = g_volMax;
 
    return(NormalizeDouble(lot, 8));
-  }
-
-//==================================================================
-// HAS OPEN POSITION — only 1 position at a time
-//==================================================================
-bool HasOpenPosition()
-  {
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
-     {
-      ulong ticket = PositionGetTicket(i);
-      if(ticket == 0) continue;
-      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-      if((long)PositionGetInteger(POSITION_MAGIC) != InpMagicNumber) continue;
-      return(true);
-     }
-   return(false);
   }
 
 //==================================================================
