@@ -73,6 +73,10 @@ BaseCandle     g_base;             // base candle for pullback tracking
 Swing          g_pbSwings[];      // pullback swings (Stage 1 output)
 bool           g_initMode = false; // true during init (skip entry on idm taken)
 
+// Outside bar pending state — bar yang break both extremes, belum resolved
+bool           g_outsidePending = false;
+BaseCandle     g_outsideBar;       // the outside bar (both extremes)
+
 // idm tracking
 double         g_idmPrice = 0.0;   // current idm level
 bool           g_idmTaken = false; // idm has been taken this cycle
@@ -235,6 +239,7 @@ bool InitStructure()
    g_base.time  = rates[originIdx].time;
    g_base.valid = true;
    g_phase      = (g_trend == TREND_DOWN) ? PHASE_DOWN : PHASE_UP;
+   g_outsidePending = false;
 
    // Build forward from origin, processing each bar:
    // pullback detect → build structure → update idm → check reversal
@@ -288,6 +293,20 @@ void UpdateStructure(MqlRates &bar)
 
 //==================================================================
 // DETECT PULLBACK — base_candle zigzag (Stage 1)
+//
+// Normal mode:
+//   PHASE_UP: continuation (higher high) or pullback (low breaks base low)
+//   PHASE_DOWN: continuation (lower low) or pullback (high breaks base high)
+//
+// Outside bar mode (bar breaks BOTH base.high AND base.low):
+//   - Store as g_outsideBar, set g_outsidePending = true
+//   - Don't record swing yet — wait for next bar to resolve:
+//     PHASE_UP:
+//       next breaks outside.high → continuation UP, commit outside.low as SL
+//       next breaks outside.low  → reversal DOWN, commit outside.high as SH
+//     PHASE_DOWN:
+//       next breaks outside.low  → continuation DOWN, commit outside.high as SH
+//       next breaks outside.high → reversal UP, commit outside.low as SL
 //==================================================================
 void DetectPullback(MqlRates &bar)
   {
@@ -301,6 +320,93 @@ void DetectPullback(MqlRates &bar)
       return;
      }
 
+   //--- Outside bar pending resolution ---
+   if(g_outsidePending)
+     {
+      if(g_phase == PHASE_UP)
+        {
+         if(bar.high > g_outsideBar.high)
+           {
+            // Continuation UP: commit outside.low as SL, resolving bar = new base
+            AddPbSwing(g_outsideBar.low, g_outsideBar.time, false);
+            g_outsidePending = false;
+            g_base.high = bar.high;
+            g_base.low  = bar.low;
+            g_base.time = bar.time;
+           }
+         else if(bar.low < g_outsideBar.low)
+           {
+            // Reversal DOWN: commit outside.high as SH
+            AddPbSwing(g_outsideBar.high, g_outsideBar.time, true);
+            g_outsidePending = false;
+            g_phase = PHASE_DOWN;
+            g_base.high = bar.high;
+            g_base.low  = bar.low;
+            g_base.time = bar.time;
+           }
+         else
+           {
+            // Neither extreme broken yet → keep waiting
+            // Update outside bar if new bar extends it
+            if(bar.high > g_outsideBar.high || bar.low < g_outsideBar.low)
+              {
+               g_outsideBar.high = MathMax(g_outsideBar.high, bar.high);
+               g_outsideBar.low  = MathMin(g_outsideBar.low,  bar.low);
+               g_outsideBar.time = bar.time;
+              }
+           }
+        }
+      else // PHASE_DOWN
+        {
+         if(bar.low < g_outsideBar.low)
+           {
+            // Continuation DOWN: commit outside.high as SH
+            AddPbSwing(g_outsideBar.high, g_outsideBar.time, true);
+            g_outsidePending = false;
+            g_base.high = bar.high;
+            g_base.low  = bar.low;
+            g_base.time = bar.time;
+           }
+         else if(bar.high > g_outsideBar.high)
+           {
+            // Reversal UP: commit outside.low as SL
+            AddPbSwing(g_outsideBar.low, g_outsideBar.time, false);
+            g_outsidePending = false;
+            g_phase = PHASE_UP;
+            g_base.high = bar.high;
+            g_base.low  = bar.low;
+            g_base.time = bar.time;
+           }
+         else
+           {
+            // Neither extreme broken yet → keep waiting
+            if(bar.high > g_outsideBar.high || bar.low < g_outsideBar.low)
+              {
+               g_outsideBar.high = MathMax(g_outsideBar.high, bar.high);
+               g_outsideBar.low  = MathMin(g_outsideBar.low,  bar.low);
+               g_outsideBar.time = bar.time;
+              }
+           }
+        }
+      return;
+     }
+
+   //--- Check for outside bar (breaks BOTH extremes) ---
+   bool isOutside = (bar.high > g_base.high && bar.low < g_base.low);
+
+   if(isOutside)
+     {
+      g_outsidePending = true;
+      g_outsideBar.high  = bar.high;
+      g_outsideBar.low   = bar.low;
+      g_outsideBar.time  = bar.time;
+      g_outsideBar.valid = true;
+      PrintFormat("AjipIDM: Outside bar detected. Phase=%s high=%.5f low=%.5f — pending resolution",
+                  g_phase == PHASE_UP ? "UP" : "DOWN", bar.high, bar.low);
+      return;
+     }
+
+   //--- Normal pullback detection (no outside bar) ---
    if(g_phase == PHASE_UP)
      {
       // Continuation: bar makes higher high → becomes new base
@@ -771,6 +877,7 @@ void ReverseToDowntrend(MqlRates &takenBar)
       g_base.time  = orgBar[0].time;
       g_base.valid = true;
      }
+   g_outsidePending = false;
 
    // Rebuild from bars AFTER origin (origin+1 ... takenBar)
    RebuildStructure(originTime, takenBar.time);
@@ -833,6 +940,7 @@ void ReverseToUptrend(MqlRates &takenBar)
       g_base.time  = orgBar[0].time;
       g_base.valid = true;
      }
+   g_outsidePending = false;
 
    // Rebuild from bars AFTER origin
    RebuildStructure(originTime, takenBar.time);
@@ -1110,7 +1218,7 @@ void DrawSwings()
      {
       string idmName = g_objPrefix + "IDM";
       ObjectCreate(0, idmName, OBJ_HLINE, 0, 0, g_idmPrice);
-      ObjectSetInteger(0, idmName, OBJPROP_COLOR, clrYellow);
+      ObjectSetInteger(0, idmName, OBJPROP_COLOR, clrBlack);
       ObjectSetInteger(0, idmName, OBJPROP_WIDTH, 1);
       ObjectSetInteger(0, idmName, OBJPROP_STYLE, STYLE_DASH);
      }
