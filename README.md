@@ -74,6 +74,18 @@ SL = 2 * entry - TP (RR 1:1)
 - Uptrend idm: close < SLU_last → downtrend confirmed, lanjut track
 - Downtrend idm: close > SHD_last → uptrend confirmed, lanjut track
 
+### Entry Invalidation (body break setelah entry)
+
+Entry premise: idm sweep (wick takes idm) tapi close reclaim. Jika bar berikutnya body-break sweep level:
+
+```
+BUY invalid:  close < sweep level (idm yang di-take)  → close position
+SELL invalid: close > sweep level (idm yang di-take)  → close position
+```
+
+Sweep level = idm price saat taken (disimpan sebelum reversal mengganti g_idmPrice).
+Invalidasi dievaluasi pada CLOSED bar, BEFORE CheckIdmTaken.
+
 ---
 
 ## 2. EA Architecture
@@ -109,9 +121,10 @@ InpMaxLines     = 500            — Max trendline objects
 ```
 1. Detect new closed bar (via g_lastBarTime)
 2. UpdateStructure: pullback detection + simple structure build
-3. CheckIdmTaken: cek idm taken pada closed bar
-4. If entry: place MT5 order dengan TP/SL physical
-5. One position at a time — next requires current TP/SL hit
+3. CheckEntryInvalidation: jika posisi terbuka dan body-break sweep level → close position
+4. CheckIdmTaken: cek idm taken pada closed bar
+5. If entry: place MT5 order dengan TP/SL physical
+6. One position at a time — next requires current TP/SL hit or invalidation
 ```
 
 ### Position Management
@@ -295,3 +308,10 @@ Outside bar ditangani secara implisit di pullback detection:
   - Outside bar: ditangani implisit (continuation wins atas pullback)
   - Hapus stale TODO: merge post-process (replaced by filter), CHoCH/BOS (by design tidak perlu)
   - Fix semua file path references
+
+### Session 4 (2026-07-23): Entry invalidation
+- Feature: close posisi jika bar berikutnya body-break sweep level
+- g_entrySweepPrice menyimpan idm level saat taken (sebelum reversal)
+- g_entryDir: 1=BUY, -1=SELL, 0=none
+- CheckEntryInvalidation() dipanggil BEFORE CheckIdmTaken di OnTick
+- Invalidation: BUY close<sweep, SELL close>sweep → PositionClose()

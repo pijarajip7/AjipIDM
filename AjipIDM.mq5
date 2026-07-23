@@ -77,6 +77,10 @@ bool           g_initMode = false; // true during init (skip entry on idm taken)
 double         g_idmPrice = 0.0;   // current idm level
 bool           g_idmTaken = false; // idm has been taken this cycle
 
+// Entry invalidation tracking
+double         g_entrySweepPrice = 0.0;  // idm level at entry (body-break = invalid)
+int            g_entryDir = 0;           // 0=none, 1=BUY, -1=SELL
+
 // Bar tracking
 datetime       g_lastBarTime = 0;  // for new-bar detection within OnTick
 
@@ -150,7 +154,10 @@ void OnTick()
    UpdateStructure(rates[1]);
    if(InpDrawLines) DrawSwings();
 
-   // 2. Check idm taken on the just-closed bar
+   // 2. Invalidate open position if body-break sweep level
+   CheckEntryInvalidation(rates[1]);
+
+   // 3. Check idm taken on the just-closed bar
    CheckIdmTaken(rates[1]);
   }
 
@@ -529,6 +536,62 @@ void UpdateIdm()
   }
 
 //==================================================================
+// CHECK ENTRY INVALIDATION
+// Entry premise: idm sweep (wick takes idm) but close reclaims.
+// If a LATER bar closes beyond the sweep level → body break → premise dead.
+// BUY  invalid: close < sweep level
+// SELL invalid: close > sweep level
+//==================================================================
+void CheckEntryInvalidation(MqlRates &bar)
+  {
+   if(g_entryDir == 0) return;
+   if(g_entrySweepPrice <= 0.0) return;
+   if(!HasOpenPosition()) { g_entryDir = 0; return; }
+
+   bool invalid = false;
+
+   if(g_entryDir == 1)  // BUY
+     {
+      // Sweep was bearish (took idm from below). Body break = close below.
+      if(bar.close < g_entrySweepPrice)
+         invalid = true;
+     }
+   else if(g_entryDir == -1)  // SELL
+     {
+      // Sweep was bullish (took idm from above). Body break = close above.
+      if(bar.close > g_entrySweepPrice)
+         invalid = true;
+     }
+
+   if(!invalid) return;
+
+   PrintFormat("AjipIDM: ENTRY INVALIDATED. Dir=%s, sweep=%.5f, close=%.5f — closing position",
+               g_entryDir == 1 ? "BUY" : "SELL", g_entrySweepPrice, bar.close);
+
+   // Close the open position by magic number
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if((long)PositionGetInteger(POSITION_MAGIC) != InpMagicNumber) continue;
+
+      if(trade.PositionClose(ticket))
+        {
+         PrintFormat("AjipIDM: Position %I64u closed (entry invalidated)", ticket);
+        }
+      else
+        {
+         PrintFormat("AjipIDM: Failed to close position %I64u. retcode=%d (%s)",
+                     ticket, trade.ResultRetcode(), trade.ResultRetcodeDescription());
+        }
+     }
+
+   g_entryDir = 0;
+   g_entrySweepPrice = 0.0;
+  }
+
+//==================================================================
 // CHECK IDM TAKEN
 // Uptrend: candle low < idm(SLU_last) → idm taken
 // Downtrend: candle high > idm(SHD_last) → idm taken
@@ -576,6 +639,9 @@ void CheckIdmTaken(MqlRates &bar)
 
    g_idmTaken = true;
 
+   // Save sweep level BEFORE reversal (reversal updates g_idmPrice to new trend)
+   double sweepPrice = g_idmPrice;
+
    PrintFormat("AjipIDM: IDM TAKEN. Trend was %s, idm=%.5f, bar close=%.5f",
                TrendString(g_trend), g_idmPrice, bar.close);
 
@@ -591,7 +657,12 @@ void CheckIdmTaken(MqlRates &bar)
          if(tp > 0.0 && bar.close < tp)
            {
             double sl = 2.0 * bar.close - tp;
-            OpenTrade(true, bar.close, sl, tp);
+            if(OpenTrade(true, bar.close, sl, tp))
+              {
+               // Track for invalidation: sweep level = idm that was taken
+               g_entrySweepPrice = sweepPrice;
+               g_entryDir = 1; // BUY
+              }
            }
          else
             PrintFormat("AjipIDM: BUY skip — TP invalid (tp=%.5f, close=%.5f)", tp, bar.close);
@@ -610,7 +681,12 @@ void CheckIdmTaken(MqlRates &bar)
          if(tp > 0.0 && bar.close > tp)
            {
             double sl = 2.0 * bar.close - tp;
-            OpenTrade(false, bar.close, sl, tp);
+            if(OpenTrade(false, bar.close, sl, tp))
+              {
+               // Track for invalidation: sweep level = idm that was taken
+               g_entrySweepPrice = sweepPrice;
+               g_entryDir = -1; // SELL
+              }
            }
          else
             PrintFormat("AjipIDM: SELL skip — TP invalid (tp=%.5f, close=%.5f)", tp, bar.close);
