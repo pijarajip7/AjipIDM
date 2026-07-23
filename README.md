@@ -34,9 +34,12 @@ Downtrend: SHD0 → SLD1 → SHD1 → SLD2 → SHD2 → ...
 
 ### idm Definition
 
-idm = swing TERAKHIR dalam arah trend saat ini:
-- Uptrend: idm = SLU terakhir
-- Downtrend: idm = SHD terakhir
+idm = swing TERAKHIR dari tipe inducement yang memiliki swing berlawanan setelahnya:
+- Uptrend: idm = SL terakhir yang punya SH setelahnya (bukan SL dangling di akhir)
+- Downtrend: idm = SH terakhir yang punya SL setelahnya (bukan SH dangling di akhir)
+
+Implementasi (`UpdateIdm`): walk backward dari index n-2, skip swing terakhir (dangling).
+Swing terakhir di array TIDAK pernah jadi idm — pasti ada swing baru setelahnya.
 
 idm TIDAK bergeser meski wick lebih dalam. Yang penting hanya close vs idm level.
 
@@ -75,7 +78,7 @@ SL = 2 * entry - TP (RR 1:1)
 
 ## 2. EA Architecture
 
-File: `/Users/pijarajip/AIProjects/Campur/AjipIDM.mq5`
+File: `/Users/pijarajip/AIProjects/AjipIDM/AjipIDM.mq5`
 
 ### Input Parameters
 
@@ -161,6 +164,12 @@ Dari pullback swings, commit ke simple structure hanya jika memenuhi trend rules
    - Must satisfy trend rule vs last committed of same type
 3. Kalau violate trend rule → SKIP swing tersebut
 
+**Premature update handling:**
+Jika pullback swing baru same type dengan last committed dan lebih extreme:
+- SH baru lebih tinggi dari SH lama → POP swing lama, commit yang baru
+- SL baru lebih rendah dari SL lama → POP swing lama, commit yang baru
+- Setelah pop, backtrack lastIdx ke swing terakhir yang tersisa
+
 **Trend rules:**
 - Uptrend: SH must be HH, SL must be HL
 - Downtrend: SH must be LH, SL must be LL
@@ -235,16 +244,21 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 ## 6. Known Limitations & TODO
 
 ### Belum diimplementasi
-- [ ] Outside bar handling (pending bar yang break both extremes base)
-- [ ] Merge post-process dengan --no-merge-after boundary (AjipSMC punya ini)
-- [ ] CHoCH/BOS detection (AjipIDM pakai idm taken sebagai reversal, tidak perlu CHoCH/BOS)
 - [ ] Backtest di Strategy Tester
 - [ ] Forward test live
+
+### Outside bar handling
+Outside bar ditangani secara implisit di pullback detection:
+- PHASE_UP: continuation check (`bar.high > base.high`) dievaluasi SEBELUM pullback check.
+  Jika outside bar breaks both → continuation wins, bar jadi base baru (tiduk record swing palsu).
+- PHASE_DOWN: sama, continuation down dievaluasi pertama.
+- Catatan: ini berarti outside bar yang break both extremes dianggap continuation, bukan reversal.
 
 ### Potential improvements
 - [ ] Minimum swing deviation filter (opsional, user bisa enable/disable)
 - [ ] Logging yang lebih detail untuk debugging structure
 - [ ] Alert/notification saat idm taken dan entry dibuka
+- [ ] Explicit outside bar handling (reversal pattern, bukan continuation saja)
 
 ---
 
@@ -252,7 +266,7 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 
 | File | Deskripsi |
 |------|-----------|
-| `/Users/pijarajip/AIProjects/Campur/AjipIDM.mq5` | EA MQL5 source code |
+| `/Users/pijarajip/AIProjects/AjipIDM/AjipIDM.mq5` | EA MQL5 source code |
 | `~/.hermes/skills/trading/ajipidm/SKILL.md` | Skill documentation |
 | `/Users/pijarajip/Claude/Projects/AjipSMC/docs/perception-alignment.md` | Reference: pullback & simple structure rules |
 
@@ -272,3 +286,12 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 - Major rewrite: pullback detection dengan base_candle tracking
 - Filter approach untuk trend rules (bukan merge)
 - Structure validation: SL/SH tidak di bar yang sama, trend monotonicity
+
+### Session 3 (2026-07-23): Repository init + README sync
+- Git init di `/AIProjects/AjipIDM/` (pindah dari `/AIProjects/Campur/`)
+- README sync dengan code aktual:
+  - idm definition: exclude dangling last swing (walk backward dari n-2)
+  - Stage 2: dokumentasi premature update handling (pop + recommit)
+  - Outside bar: ditangani implisit (continuation wins atas pullback)
+  - Hapus stale TODO: merge post-process (replaced by filter), CHoCH/BOS (by design tidak perlu)
+  - Fix semua file path references
