@@ -538,37 +538,56 @@ void UpdateIdm()
 //==================================================================
 // CHECK ENTRY INVALIDATION
 // Entry premise: idm sweep (wick takes idm) but close reclaims.
-// If a LATER bar closes beyond the sweep level → body break → premise dead.
-// BUY  invalid: close < sweep level
-// SELL invalid: close > sweep level
+//
+// Phase 1 — SWEEP UPDATE:
+//   Jika bar berikutnya sweep lebih dalam, update sweep level.
+//   BUY:  bar.low  < g_entrySweepPrice → update
+//   SELL: bar.high > g_entrySweepPrice → update
+//
+// Phase 2 — BODY BREAK (invalidation):
+//   Close menembus sweep level → premise gagal → modify TP to break-even.
+//   BUY:  close < sweep level → TP = entry price
+//   SELL: close > sweep level → TP = entry price
+//
+// SL tetap. Posisi tidak di-close — biarkan broker manage TP(BE)/SL.
 //==================================================================
 void CheckEntryInvalidation(MqlRates &bar)
   {
    if(g_entryDir == 0) return;
    if(g_entrySweepPrice <= 0.0) return;
-   if(!HasOpenPosition()) { g_entryDir = 0; return; }
+   if(!HasOpenPosition()) { g_entryDir = 0; g_entrySweepPrice = 0.0; return; }
 
-   bool invalid = false;
-
+   //--- Phase 1: Sweep update (deeper sweep) ---
    if(g_entryDir == 1)  // BUY
      {
-      // Sweep was bearish (took idm from below). Body break = close below.
-      if(bar.close < g_entrySweepPrice)
-         invalid = true;
+      if(bar.low < g_entrySweepPrice)
+        {
+         g_entrySweepPrice = bar.low;
+         PrintFormat("AjipIDM: Sweep update (BUY). New level=%.5f", g_entrySweepPrice);
+        }
      }
    else if(g_entryDir == -1)  // SELL
      {
-      // Sweep was bullish (took idm from above). Body break = close above.
-      if(bar.close > g_entrySweepPrice)
-         invalid = true;
+      if(bar.high > g_entrySweepPrice)
+        {
+         g_entrySweepPrice = bar.high;
+         PrintFormat("AjipIDM: Sweep update (SELL). New level=%.5f", g_entrySweepPrice);
+        }
      }
 
-   if(!invalid) return;
+   //--- Phase 2: Body break → modify TP to break-even ---
+   bool bodyBreak = false;
+   if(g_entryDir == 1 && bar.close < g_entrySweepPrice)
+      bodyBreak = true;
+   else if(g_entryDir == -1 && bar.close > g_entrySweepPrice)
+      bodyBreak = true;
 
-   PrintFormat("AjipIDM: ENTRY INVALIDATED. Dir=%s, sweep=%.5f, close=%.5f — closing position",
+   if(!bodyBreak) return;
+
+   PrintFormat("AjipIDM: BODY BREAK. Dir=%s, sweep=%.5f, close=%.5f — modifying TP to break-even",
                g_entryDir == 1 ? "BUY" : "SELL", g_entrySweepPrice, bar.close);
 
-   // Close the open position by magic number
+   // Modify TP to entry price (break-even) on all positions matching magic
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
       ulong ticket = PositionGetTicket(i);
@@ -576,17 +595,29 @@ void CheckEntryInvalidation(MqlRates &bar)
       if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
       if((long)PositionGetInteger(POSITION_MAGIC) != InpMagicNumber) continue;
 
-      if(trade.PositionClose(ticket))
+      double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      double currentTP  = PositionGetDouble(POSITION_TP);
+      double sl         = PositionGetDouble(POSITION_SL);
+
+      // Only modify if TP is not already at BE
+      if(MathAbs(currentTP - entryPrice) < g_point)
         {
-         PrintFormat("AjipIDM: Position %I64u closed (entry invalidated)", ticket);
+         PrintFormat("AjipIDM: TP already at BE for ticket %I64u", ticket);
+         continue;
+        }
+
+      if(trade.PositionModify(ticket, sl, entryPrice))
+        {
+         PrintFormat("AjipIDM: TP modified to BE (%.5f) for ticket %I64u", entryPrice, ticket);
         }
       else
         {
-         PrintFormat("AjipIDM: Failed to close position %I64u. retcode=%d (%s)",
-                     ticket, trade.ResultRetcode(), trade.ResultRetcodeDescription());
+         PrintFormat("AjipIDM: Failed to modify TP. retcode=%d (%s)",
+                     trade.ResultRetcode(), trade.ResultRetcodeDescription());
         }
      }
 
+   // Invalidate tracking (don't re-trigger)
    g_entryDir = 0;
    g_entrySweepPrice = 0.0;
   }
@@ -639,9 +670,6 @@ void CheckIdmTaken(MqlRates &bar)
 
    g_idmTaken = true;
 
-   // Save sweep level BEFORE reversal (reversal updates g_idmPrice to new trend)
-   double sweepPrice = g_idmPrice;
-
    PrintFormat("AjipIDM: IDM TAKEN. Trend was %s, idm=%.5f, bar close=%.5f",
                TrendString(g_trend), g_idmPrice, bar.close);
 
@@ -659,8 +687,8 @@ void CheckIdmTaken(MqlRates &bar)
             double sl = 2.0 * bar.close - tp;
             if(OpenTrade(true, bar.close, sl, tp))
               {
-               // Track for invalidation: sweep level = idm that was taken
-               g_entrySweepPrice = sweepPrice;
+               // Track for invalidation: sweep level = low of sweep bar
+               g_entrySweepPrice = bar.low;
                g_entryDir = 1; // BUY
               }
            }
@@ -683,8 +711,8 @@ void CheckIdmTaken(MqlRates &bar)
             double sl = 2.0 * bar.close - tp;
             if(OpenTrade(false, bar.close, sl, tp))
               {
-               // Track for invalidation: sweep level = idm that was taken
-               g_entrySweepPrice = sweepPrice;
+               // Track for invalidation: sweep level = high of sweep bar
+               g_entrySweepPrice = bar.high;
                g_entryDir = -1; // SELL
               }
            }
