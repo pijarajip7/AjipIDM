@@ -17,14 +17,14 @@
 // INPUTS
 //==================================================================
 input ENUM_TIMEFRAMES InpTimeframe   = PERIOD_M15;  // Working timeframe
-input double          InpTargetAmount = 100.0;      // Target profit per trade (USD)
+input double          InpTargetAmount = 500.0;      // Target profit per trade (USD)
 input int             InpCandlesInit = 50;          // Lookback candles for initial trend
 input ulong           InpDeviation   = 10;          // Slippage (points)
 input long            InpMagicNumber = 99001;       // Magic number
 input bool            InpDrawLines   = true;        // Draw structure lines on chart
 input int             InpMaxLines    = 500;         // Max trendline objects (cleanup)
-input double          InpRR          = 1.0;         // Risk:Reward (1=1:1, 2=1:2, 0=NO SL)
-input int             InpMinTpPoints = 0;           // Min TP distance in points (skip if below)
+input double          InpRR          = 0.0;         // Risk:Reward (1=1:1, 2=1:2, 0=NO SL)
+input int             InpMinTpPoints = 300;           // Min TP distance in points (skip if below)
 
 //==================================================================
 // ENUMS & STRUCTS

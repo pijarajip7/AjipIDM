@@ -1,6 +1,6 @@
 # AjipIDM — Progress & Documentation
 
-> Strategy: Inducement-centric SMC untuk MT5 EA. Simple structure (SL/SH) tanpa VH/VL. Entry = idm taken + no body break → fade dengan RR 1:1.
+> Strategy: Inducement-centric SMC untuk MT5 EA. Simple structure (SL/SH) tanpa VH/VL. Entry = idm taken + no body break → fade dengan configurable RR. Multi-position dengan invalidation (body-break sweep → TP to BE).
 
 ---
 
@@ -16,8 +16,8 @@ AjipIDM berbeda dari AjipSMC dalam hal:
 | Entry | OF/OB/FVG analysis | idm taken + no body break → fade |
 | Entry direction | Trend-following (menuju Weak) | Counter-trend (sweep/fakeout) |
 | Target | Weak VL/VH | Swing terakhir di struktur baru |
-| RR | 1:2 minimum | 1:1 fixed |
-| SL | Hybrid structural + ATR | Derived dari TP distance (symmetric) |
+| RR | 1:2 minimum | Configurable via InpRR (1:1, 1:2, 1:0.5, dll) |
+| SL | Hybrid structural + ATR | Derived dari TP distance / RR, atau no SL (RR=0) |
 | Platform | Python + TradingView | MT5 EA (MQL5) |
 
 ### Naming Convention
@@ -58,7 +58,7 @@ Condition: candle low < SLU_last (idm) AND close > SLU_last
 → No body break = sweep/fakeout
 → BUY @ close price
 TP = SHD terakhir di downtrend structure baru
-SL = 2 * entry - TP (RR 1:1)
+SL = entry - (tpDistance / InpRR)    (RR=0 → no SL)
 ```
 
 **SELL** (downtrend → idm taken dari atas):
@@ -67,7 +67,7 @@ Condition: candle high > SHD_last (idm) AND close < SHD_last
 → No body break = sweep/fakeout
 → SELL @ close price
 TP = SLU terakhir di uptrend structure baru
-SL = 2 * entry - TP (RR 1:1)
+SL = entry + (tpDistance / InpRR)    (RR=0 → no SL)
 ```
 
 **Body break = no entry:**
@@ -76,14 +76,26 @@ SL = 2 * entry - TP (RR 1:1)
 
 ### Entry Invalidation (body break setelah entry)
 
-Entry premise: idm sweep (wick takes idm) tapi close reclaim. Jika bar berikutnya body-break sweep level:
+Entry premise: idm sweep (wick takes idm) tapi close reclaim. 
 
+**Sweep level** = high/low bar yang ambil idm (bukan idm price):
+- BUY: sweep level = LOW bar yang sweep
+- SELL: sweep level = HIGH bar yang sweep
+
+**Sweep update:** jika bar berikutnya sweep lebih dalam, update sweep level.
+
+**Body break = invalidasi:** close menembus sweep level TERBARU → premise gagal:
 ```
-BUY invalid:  close < sweep level (idm yang di-take)  → close position
-SELL invalid: close > sweep level (idm yang di-take)  → close position
+BUY invalid:  close < sweep level → modify TP to break-even (entry price)
+SELL invalid: close > sweep level → modify TP to break-even (entry price)
 ```
 
-Sweep level = idm price saat taken (disimpan sebelum reversal mengganti g_idmPrice).
+TP digeser ke BE, SL tetap. Posisi TIDAK di-close — biarkan broker manage.
+
+**Multi-position:** tiap entry ditrack per-ticket (EntryTracker array: ticket, sweepPrice, dir).
+Auto-cleanup: posisi yang sudah TP/SL hit otomatis di-remove dari tracking.
+
+**Body break dievaluasi SEBELUM sweep update** (fix bug: sweep update duluan menyembunyikan body break).
 Invalidasi dievaluasi pada CLOSED bar, BEFORE CheckIdmTaken.
 
 ---
@@ -96,12 +108,14 @@ File: `/Users/pijarajip/AIProjects/AjipIDM/AjipIDM.mq5`
 
 ```
 InpTimeframe    = PERIOD_M15     — Working timeframe
-InpRiskAmount   = 100.0          — Risk amount per trade (USD)
+InpTargetAmount = 100.0          — Target profit per trade (USD)
 InpCandlesInit  = 50             — Lookback candles untuk initial trend
 InpDeviation    = 10             — Slippage (points)
 InpMagicNumber  = 99001          — Magic number
 InpDrawLines    = true           — Draw structure lines on chart
 InpMaxLines     = 500            — Max trendline objects
+InpRR           = 1.0            — Risk:Reward (1=1:1, 2=1:2, 0.5=1:0.5, 0=NO SL)
+InpMinTpPoints  = 0              — Min TP distance in points (0=no filter)
 ```
 
 ### Init
@@ -121,22 +135,26 @@ InpMaxLines     = 500            — Max trendline objects
 ```
 1. Detect new closed bar (via g_lastBarTime)
 2. UpdateStructure: pullback detection + simple structure build
-3. CheckEntryInvalidation: jika posisi terbuka dan body-break sweep level → close position
+3. CheckEntryInvalidation: untuk semua tracked entries:
+   - Body break? (close menembus sweep level) → TP to BE, remove tracking
+   - Sweep update? (deeper sweep, jika tidak body break) → update sweep level
+   - Auto-cleanup: posisi yang sudah closed → remove tracking
 4. CheckIdmTaken: cek idm taken pada closed bar
-5. If entry: place MT5 order dengan TP/SL physical
-6. One position at a time — next requires current TP/SL hit or invalidation
+5. If entry: place MT5 order, AddEntry to tracking
+6. Multi-position — tidak ada batasan jumlah posisi
 ```
 
 ### Position Management
 
-- TP/SL: physical MT5 orders (broker manage)
-- Lot size: dari risk_amount dan SL distance
+- TP/SL: physical MT5 orders (broker manage). InpRR=0 → no SL.
+- Lot size: dari target_amount dan TP distance
   ```
-  lossPerLot = (slDistance / tickSize) * tickValue
-  lot = riskAmount / lossPerLot
+  gainPerLot = (tpDistance / tickSize) * tickValue
+  lot = InpTargetAmount / gainPerLot
   ```
-- One position at a time — no stacking
-- After TP/SL hit → continue tracking untuk next signal
+- Multi-position — tidak ada batasan jumlah posisi terbuka
+- Entry invalidation: body-break sweep → TP to BE (tidak close posisi)
+- After TP/SL/BE hit → continue tracking untuk next signal
 
 ---
 
@@ -162,7 +180,22 @@ Aturan:
 - HI dan LO tidak pernah di bar yang sama
 - Output: alternating HI → LO → HI → LO → ...
 
-Catatan: Outside bar handling belum diimplementasi. pending untuk future improvement.
+Catatan: Outside bar ditangani via pending resolution (lihat Known Limitations).
+
+### Outside Bar Handling (pending resolution)
+
+Outside bar = bar yang break BOTH base.high AND base.low. Implementasi di `DetectPullback`:
+
+1. Simpan outside bar sebagai `g_outsideBar`, set `g_outsidePending = true`
+2. Jangan record swing dulu — tunggu bar berikutnya resolve:
+   - **PHASE_UP:**
+     - Next breaks outside.high → continuation UP, commit outside.low sebagai SL
+     - Next breaks outside.low → reversal DOWN, commit outside.high sebagai SH
+   - **PHASE_DOWN:**
+     - Next breaks outside.low → continuation DOWN, commit outside.high sebagai SH
+     - Next breaks outside.high → reversal UP, commit outside.low sebagai SL
+3. Outside bar bisa extend jika bar berikutnya lebih extreme sebelum resolve
+4. Reset di InitStructure, ReverseToDowntrend, ReverseToUptrend
 
 ### Stage 2: Simple Structure (filter dengan trend rules)
 
@@ -212,15 +245,15 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
    Retroactive structure: SHD0(120) - SLD1(112) - SHD1(118) - SLD2(107)
 3. Candle close = 109 (> SLU2=108) → BUY @ 109
    TP = SHD1 = 118 (last SHD before SLD2)
-   SL = 2*109 - 118 = 100
-   RR = 1:1
+   tpDistance = 118 - 109 = 9
+   SL = 109 - (9 / InpRR)    (RR=1 → SL=100, RR=2 → SL=104.5)
 
 4. Price naik ke 118 (= TP hit). Position closed.
 5. At 118, candle high > SHD1 → IDM TAKEN untuk downtrend
    Trend → UP. Build dari SLD2(107) = SLU0
    Candle close < SHD1 → SELL @ close
    TP = SLU terakhir di uptrend structure baru
-   SL = 2*entry - TP
+   SL = entry + (tpDistance / InpRR)
 ```
 
 ---
@@ -260,18 +293,10 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 - [ ] Backtest di Strategy Tester
 - [ ] Forward test live
 
-### Outside bar handling
-Outside bar ditangani secara implisit di pullback detection:
-- PHASE_UP: continuation check (`bar.high > base.high`) dievaluasi SEBELUM pullback check.
-  Jika outside bar breaks both → continuation wins, bar jadi base baru (tiduk record swing palsu).
-- PHASE_DOWN: sama, continuation down dievaluasi pertama.
-- Catatan: ini berarti outside bar yang break both extremes dianggap continuation, bukan reversal.
-
 ### Potential improvements
 - [ ] Minimum swing deviation filter (opsional, user bisa enable/disable)
 - [ ] Logging yang lebih detail untuk debugging structure
 - [ ] Alert/notification saat idm taken dan entry dibuka
-- [ ] Explicit outside bar handling (reversal pattern, bukan continuation saja)
 
 ---
 
@@ -309,9 +334,13 @@ Outside bar ditangani secara implisit di pullback detection:
   - Hapus stale TODO: merge post-process (replaced by filter), CHoCH/BOS (by design tidak perlu)
   - Fix semua file path references
 
-### Session 4 (2026-07-23): Entry invalidation
-- Feature: close posisi jika bar berikutnya body-break sweep level
-- g_entrySweepPrice menyimpan idm level saat taken (sebelum reversal)
-- g_entryDir: 1=BUY, -1=SELL, 0=none
-- CheckEntryInvalidation() dipanggil BEFORE CheckIdmTaken di OnTick
-- Invalidation: BUY close<sweep, SELL close>sweep → PositionClose()
+### Session 4 (2026-07-23): Entry invalidation + RR + outside bar + multi-position
+- Entry invalidation: body-break sweep level → modify TP to break-even (bukan close)
+- Sweep level = bar high/low (bukan idm price), update jika sweep lebih dalam
+- Body break dievaluasi SEBELUM sweep update (fix bug)
+- Outside bar: pending resolution (break both → tunggu next bar resolve)
+- InpRR: configurable risk:reward (0=no SL)
+- InpMinTpPoints: filter entry dengan TP distance minimum
+- InpTargetAmount (replaces InpRiskAmount): lot dari TP distance
+- Multi-position: EntryTracker array, hapus batasan 1 posisi
+- OpenTrade returns ticket (ulong)
