@@ -1,0 +1,11 @@
+# MQL5 compiled
+*.ex5
+
+# macOS
+.DS_Store
+
+# Editor
+*.swp
+*~
+.vscode/
+.idea/
