@@ -1040,15 +1040,24 @@ void RebuildStructure(datetime originTime, datetime endTime)
    // Verify we got the right bars: rates[0] should be oldest (near origin)
    // rates[copied-1] should be newest (= takenBar/endShift)
 
-   // Feed each bar to DetectPullback only (NOT full UpdateStructure)
-   // BuildSimpleStructure called once at end to avoid mid-replay state issues
+   // LIVE replay: process each bar fully (pullback + structure + idm + reversal).
+   // CheckIdmTaken may trigger ReverseToDowntrend/Up → recursive RebuildStructure.
+   // g_initMode suppresses entries during replay (structural processing only).
+   // Without this, a reversal event mid-range is lost → wrong trend/idm going forward.
+   bool savedInitMode = g_initMode;
+   g_initMode = true;
    for(int i = 0; i < copied; i++)
      {
       DetectPullback(rates[i]);
+      BuildSimpleStructure();
+      UpdateIdm();
+      if(g_idmPrice > 0.0)
+         CheckIdmTaken(rates[i]);
      }
-
-   // Build final structure from all pullback swings
+   // Final build + idm after all bars processed
    BuildSimpleStructure();
+   UpdateIdm();
+   g_initMode = savedInitMode;
 
    // Debug
    int npb = ArraySize(g_pbSwings);

@@ -285,6 +285,9 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 14. Alternation enforcement: skip same-type swing jika last committed belum opposite
 15. Origin protection: first swing always committed
 
+### Round 6: RebuildStructure live replay
+28. RebuildStructure: process reversal events (idm taken) selama replay, bukan pullback-only. Sebelumnya replay hanya DetectPullback per bar + BuildSimpleStructure di akhir — reversal di tengah range origin→takenBar hilang. Fix: replay loop sekarang panggil DetectPullback + BuildSimpleStructure + UpdateIdm + CheckIdmTaken per bar (sama dengan InitStructure pattern). g_initMode disave/restore untuk suppress entry selama replay. Reversal kedua di tengah range sekarang terdeteksi → trend/idm benar untuk bar selanjutnya.
+
 ---
 
 ## 6. Known Limitations & TODO
@@ -344,3 +347,9 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 - InpTargetAmount (replaces InpRiskAmount): lot dari TP distance
 - Multi-position: EntryTracker array, hapus batasan 1 posisi
 - OpenTrade returns ticket (ulong)
+
+### Session 5 (2026-07-24): RebuildStructure live replay
+- RebuildStructure: reversal di tengah range (idm taken) sekarang diproses, tidak di-skip
+- Replay loop identik dengan InitStructure: DetectPullback + BuildSimpleStructure + UpdateIdm + CheckIdmTaken per bar
+- g_initMode save/restore selama replay → entry suppressed, struktur tetap diproses
+- Reversal kedua (chained) di tengah replay terdeteksi → trend/idm benar going forward
