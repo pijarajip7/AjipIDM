@@ -102,7 +102,7 @@ Invalidasi dievaluasi pada CLOSED bar, BEFORE CheckIdmTaken.
 
 ## 2. EA Architecture
 
-File: `/Users/pijarajip/AIProjects/AjipIDM/AjipIDM.mq5`
+Files: `AjipIDM.mq5` (main) + 7 `.mqh` includes (see Files table below).
 
 ### Input Parameters
 
@@ -288,6 +288,9 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 ### Round 6: RebuildStructure live replay
 28. RebuildStructure: process reversal events (idm taken) selama replay, bukan pullback-only. Sebelumnya replay hanya DetectPullback per bar + BuildSimpleStructure di akhir — reversal di tengah range origin→takenBar hilang. Fix: replay loop sekarang panggil DetectPullback + BuildSimpleStructure + UpdateIdm + CheckIdmTaken per bar (sama dengan InitStructure pattern). g_initMode disave/restore untuk suppress entry selama replay. Reversal kedua di tengah range sekarang terdeteksi → trend/idm benar untuk bar selanjutnya.
 
+### Round 7: Multiple mid-replay reverses
+29. g_idmTaken reset BEFORE RebuildStructure (bukan setelah). Bug: `g_idmTaken=true` di-set saat live idm taken, lalu ReverseToDowntrend/Up call RebuildStructure. Tapi `CheckIdmTaken` baris pertama `if(g_idmTaken) return;` — langsung exit. Mid-replay reverse (down→up→down) tidak pernah fire. Struktur/idm berhenti di reverse pertama. Fix: pindah `g_idmTaken=false` ke sebelum `RebuildStructure` di kedua fungsi reverse. Sekarang chained reverse di tengah replay terdeteksi → idm level dari reverse TERAKHIR (correct), bukan pertama.
+
 ---
 
 ## 6. Known Limitations & TODO
@@ -307,9 +310,16 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 
 | File | Deskripsi |
 |------|-----------|
-| `/Users/pijarajip/AIProjects/AjipIDM/AjipIDM.mq5` | EA MQL5 source code |
+| `AjipIDM.mq5` | EA MQL5 main file — inputs, OnInit, OnTick |
+| `AjipIDM_Globals.mqh` | Global state, structs, enum, helper functions |
+| `AjipIDM_Pullback.mqh` | Stage 1: base_candle pullback detection + outside bar |
+| `AjipIDM_Structure.mqh` | Stage 2: simple structure build (filter + premature update) |
+| `AjipIDM_Reversal.mqh` | ReverseToDowntrend/Up + RebuildStructure (live replay) |
+| `AjipIDM_Entry.mqh` | CheckIdmTaken + entry logic + entry invalidation tracking |
+| `AjipIDM_Trade.mqh` | OpenTrade, lot calc, swing helpers |
+| `AjipIDM_Core.mqh` | InitStructure, OnTick dispatch |
 | `~/.hermes/skills/trading/ajipidm/SKILL.md` | Skill documentation |
-| `/Users/pijarajip/Claude/Projects/AjipSMC/docs/perception-alignment.md` | Reference: pullback & simple structure rules |
+| `docs/perception-alignment.md` | Reference: pullback & simple structure rules |
 
 ---
 
@@ -353,3 +363,9 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 - Replay loop identik dengan InitStructure: DetectPullback + BuildSimpleStructure + UpdateIdm + CheckIdmTaken per bar
 - g_initMode save/restore selama replay → entry suppressed, struktur tetap diproses
 - Reversal kedua (chained) di tengah replay terdeteksi → trend/idm benar going forward
+
+### Session 6 (2026-07-24): Multiple mid-replay reverses fix
+- Bug: g_idmTaken=true saat live idm taken → CheckIdmTaken early-return di tengah RebuildStructure → mid-replay reverse hilang
+- Fix: reset g_idmTaken=false SEBELUM RebuildStructure di ReverseToDowntrend & ReverseToUptrend
+- Chained reverse (down→up→down) di tengah replay sekarang terdeteksi → idm level dari reverse TERAKHIR
+- Modular split: code dipisah ke 7 file .mqh (Globals, Pullback, Structure, Reversal, Entry, Trade, Core)
