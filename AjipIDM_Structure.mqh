@@ -41,23 +41,21 @@ void BuildSimpleStructure()
             : (price < g_swings[lastSLIdx].price);
          if(premature)
            {
-            if(isHigh)
+            // Pop the stale same-type swing. PopSwingAt shifts elements
+            // left, which invalidates index positions for BOTH swing types
+            // — not just the one popped. Recompute all three pointers.
+            if(isHigh) PopSwingAt(lastSHIdx);
+            else       PopSwingAt(lastSLIdx);
+
+            lastSHIdx = -1;
+            lastSLIdx = -1;
+            lastIdx   = -1;
+            int ns = ArraySize(g_swings);
+            for(int j = ns - 1; j >= 0; j--)
               {
-               PopSwingAt(lastSHIdx);
-               lastSHIdx = -1;
-               int ns = ArraySize(g_swings);
-               for(int j = ns - 1; j >= 0; j--)
-                  if(g_swings[j].isHigh) { lastSHIdx = j; break; }
-               lastIdx = lastSHIdx;
-              }
-            else
-              {
-               PopSwingAt(lastSLIdx);
-               lastSLIdx = -1;
-               int ns = ArraySize(g_swings);
-               for(int j = ns - 1; j >= 0; j--)
-                  if(!g_swings[j].isHigh) { lastSLIdx = j; break; }
-               lastIdx = lastSLIdx;
+               if(g_swings[j].isHigh)  { if(lastSHIdx < 0) lastSHIdx = j; }
+               else                     { if(lastSLIdx < 0) lastSLIdx = j; }
+               if(lastIdx < 0) lastIdx = j; // last committed overall
               }
             // Fall through to normal commit below
            }

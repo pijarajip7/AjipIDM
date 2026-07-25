@@ -291,6 +291,9 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 ### Round 7: Multiple mid-replay reverses
 29. g_idmTaken reset BEFORE RebuildStructure (bukan setelah). Bug: `g_idmTaken=true` di-set saat live idm taken, lalu ReverseToDowntrend/Up call RebuildStructure. Tapi `CheckIdmTaken` baris pertama `if(g_idmTaken) return;` — langsung exit. Mid-replay reverse (down→up→down) tidak pernah fire. Struktur/idm berhenti di reverse pertama. Fix: pindah `g_idmTaken=false` ke sebelum `RebuildStructure` di kedua fungsi reverse. Sekarang chained reverse di tengah replay terdeteksi → idm level dari reverse TERAKHIR (correct), bukan pertama.
 
+### Round 8: Stale index pointer in premature-pop (array out of range)
+30. `BuildSimpleStructure` array out of range (line 72,50) saat backtest. Root cause: saat premature-pop, `PopSwingAt` shift elemen array ke kiri, yang membatalkan posisi index untuk KEDUA tipe swing (SH dan SL). Tapi code lama hanya recompute pointer tipe yang di-pop (misal pop SH → cuma cari SH baru), pointer tipe lawan (lastSLIdx) dibiarkan stale. Di iterasi berikutnya, `g_swings[lastSLIdx]` diakses dengan index lama yang >= ArraySize → crash. Fix: setelah PopSwingAt, recompute KETIGA pointer (lastSHIdx, lastSLIdx, lastIdx) sekaligus dalam satu backward scan. Terverifikasi via 20,000-trial fuzz: OLD code 1114 crashes, NEW code 0 crashes.
+
 ---
 
 ## 6. Known Limitations & TODO
@@ -369,3 +372,9 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 - Fix: reset g_idmTaken=false SEBELUM RebuildStructure di ReverseToDowntrend & ReverseToUptrend
 - Chained reverse (down→up→down) di tengah replay sekarang terdeteksi → idm level dari reverse TERAKHIR
 - Modular split: code dipisah ke 7 file .mqh (Globals, Pullback, Structure, Reversal, Entry, Trade, Core)
+
+### Session 7 (2026-07-25): Stale index pointer fix (array out of range)
+- Bug: `array out of range in AjipIDM_Structure.mqh (72,50)` saat backtest di Strategy Tester
+- Root cause: premature-pop di BuildSimpleStructure hanya recompute pointer tipe yang di-pop; pointer tipe lawan jadi stale setelah PopSwingAt shift elemen
+- Fix: recompute ketiga pointer (lastSHIdx, lastSLIdx, lastIdx) sekaligus setelah pop
+- Verifikasi: 20,000-trial fuzz (OLD 1114 crash, NEW 0 crash). Compile test di MetaEditor menunggu backtest ulang user.
