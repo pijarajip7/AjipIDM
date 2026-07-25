@@ -25,6 +25,8 @@ input bool            InpDrawLines   = true;        // Draw structure lines on c
 input int             InpMaxLines    = 500;         // Max trendline objects (cleanup)
 input double          InpRR          = 0.0;         // Risk:Reward (1=1:1, 2=1:2, 0=NO SL)
 input int             InpMinTpPoints = 300;           // Min TP distance in points (skip if below)
+input double          InpDailyMaxProfit = 0.0;      // Daily max profit (0=disabled, stop new trades when reached)
+input double          InpDailyMaxLoss   = 0.0;      // Daily max loss (0=disabled, stop new trades when reached)
 
 //--- AjipIDM module includes (order matters: globals first, then deps) ---
 #include "AjipIDM_Globals.mqh"

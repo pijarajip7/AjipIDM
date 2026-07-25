@@ -161,35 +161,43 @@ void CheckIdmTaken(MqlRates &bar)
 
       if(doEntry && entryBuy && !g_initMode)
         {
-         // BUY: TP = last SHD in new downtrend structure
-         double tp = GetLastSHDPrice();
-         if(tp > 0.0 && bar.close < tp)
+         // Daily limit check
+         if(DailyLimitReached())
            {
-            double tpDistance = tp - bar.close;
-            // RR=0 → no SL
-            double sl = 0.0;
-            if(InpRR > 0.0)
-              {
-               double slDistance = tpDistance / InpRR;
-               sl = bar.close - slDistance;
-              }
-
-            // Min TP points filter
-            double tpPoints = tpDistance / g_point;
-            if(InpMinTpPoints > 0 && tpPoints < InpMinTpPoints)
-              {
-               PrintFormat("AjipIDM: BUY skip — TP points %.0f < %d (tp=%.5f, close=%.5f)",
-                           tpPoints, InpMinTpPoints, tp, bar.close);
-              }
-            else
-              {
-               ulong ticket = OpenTrade(true, bar.close, sl, tp);
-               if(ticket > 0)
-                  AddEntry(ticket, bar.low, 1); // BUY, sweep = bar low
-              }
+            PrintFormat("AjipIDM: BUY skip — daily limit reached.");
            }
          else
-            PrintFormat("AjipIDM: BUY skip — TP invalid (tp=%.5f, close=%.5f)", tp, bar.close);
+           {
+            // BUY: TP = last SHD in new downtrend structure
+            double tp = GetLastSHDPrice();
+            if(tp > 0.0 && bar.close < tp)
+              {
+               double tpDistance = tp - bar.close;
+               // RR=0 → no SL
+               double sl = 0.0;
+               if(InpRR > 0.0)
+                 {
+                  double slDistance = tpDistance / InpRR;
+                  sl = bar.close - slDistance;
+                 }
+
+               // Min TP points filter
+               double tpPoints = tpDistance / g_point;
+               if(InpMinTpPoints > 0 && tpPoints < InpMinTpPoints)
+                 {
+                  PrintFormat("AjipIDM: BUY skip — TP points %.0f < %d (tp=%.5f, close=%.5f)",
+                              tpPoints, InpMinTpPoints, tp, bar.close);
+                 }
+               else
+                 {
+                  ulong ticket = OpenTrade(true, bar.close, sl, tp);
+                  if(ticket > 0)
+                     AddEntry(ticket, bar.low, 1); // BUY, sweep = bar low
+                 }
+              }
+            else
+               PrintFormat("AjipIDM: BUY skip — TP invalid (tp=%.5f, close=%.5f)", tp, bar.close);
+           }
         }
       // Else: body break or init mode → no entry, continue downtrend
      }
@@ -200,35 +208,43 @@ void CheckIdmTaken(MqlRates &bar)
 
       if(doEntry && !entryBuy && !g_initMode)
         {
-         // SELL: TP = last SLU in new uptrend structure
-         double tp = GetLastSLUPrice();
-         if(tp > 0.0 && bar.close > tp)
+         // Daily limit check
+         if(DailyLimitReached())
            {
-            double tpDistance = bar.close - tp;
-            // RR=0 → no SL
-            double sl = 0.0;
-            if(InpRR > 0.0)
-              {
-               double slDistance = tpDistance / InpRR;
-               sl = bar.close + slDistance;
-              }
-
-            // Min TP points filter
-            double tpPoints = tpDistance / g_point;
-            if(InpMinTpPoints > 0 && tpPoints < InpMinTpPoints)
-              {
-               PrintFormat("AjipIDM: SELL skip — TP points %.0f < %d (tp=%.5f, close=%.5f)",
-                           tpPoints, InpMinTpPoints, tp, bar.close);
-              }
-            else
-              {
-               ulong ticket = OpenTrade(false, bar.close, sl, tp);
-               if(ticket > 0)
-                  AddEntry(ticket, bar.high, -1); // SELL, sweep = bar high
-              }
+            PrintFormat("AjipIDM: SELL skip — daily limit reached.");
            }
          else
-            PrintFormat("AjipIDM: SELL skip — TP invalid (tp=%.5f, close=%.5f)", tp, bar.close);
+           {
+            // SELL: TP = last SLU in new uptrend structure
+            double tp = GetLastSLUPrice();
+            if(tp > 0.0 && bar.close > tp)
+              {
+               double tpDistance = bar.close - tp;
+               // RR=0 → no SL
+               double sl = 0.0;
+               if(InpRR > 0.0)
+                 {
+                  double slDistance = tpDistance / InpRR;
+                  sl = bar.close + slDistance;
+                 }
+
+               // Min TP points filter
+               double tpPoints = tpDistance / g_point;
+               if(InpMinTpPoints > 0 && tpPoints < InpMinTpPoints)
+                 {
+                  PrintFormat("AjipIDM: SELL skip — TP points %.0f < %d (tp=%.5f, close=%.5f)",
+                              tpPoints, InpMinTpPoints, tp, bar.close);
+                 }
+               else
+                 {
+                  ulong ticket = OpenTrade(false, bar.close, sl, tp);
+                  if(ticket > 0)
+                     AddEntry(ticket, bar.high, -1); // SELL, sweep = bar high
+                 }
+              }
+            else
+               PrintFormat("AjipIDM: SELL skip — TP invalid (tp=%.5f, close=%.5f)", tp, bar.close);
+           }
         }
       // Else: body break → no entry, continue uptrend
      }

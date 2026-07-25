@@ -120,6 +120,81 @@ double CalcLot(double tpDistance)
   }
 
 //==================================================================
+// GET DAILY PNL — sum profit of all closed deals today (this symbol + magic)
+// Returns total realized P/L for the current trading day.
+//==================================================================
+double GetDailyPnL()
+  {
+   datetime dayStart = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
+   datetime dayEnd   = dayStart + 86400;
+
+   if(!HistorySelect(dayStart, dayEnd)) return(0.0);
+
+   double total = 0.0;
+   int    ndeals = HistoryDealsTotal();
+   for(int i = 0; i < ndeals; i++)
+     {
+      ulong ticket = HistoryDealGetTicket(i);
+      if(ticket == 0) continue;
+
+      // Filter by symbol
+      string dealSymbol = HistoryDealGetString(ticket, DEAL_SYMBOL);
+      if(dealSymbol != _Symbol) continue;
+
+      // Filter by magic number
+      long dealMagic = HistoryDealGetInteger(ticket, DEAL_MAGIC);
+      if(dealMagic != InpMagicNumber) continue;
+
+      double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT)
+                    + HistoryDealGetDouble(ticket, DEAL_SWAP)
+                    + HistoryDealGetDouble(ticket, DEAL_COMMISSION);
+
+      total += profit;
+     }
+
+   return(total);
+  }
+
+//==================================================================
+// DAILY LIMIT REACHED — check if daily max profit or max loss hit
+// Returns true if no new trades should be opened today.
+//==================================================================
+bool DailyLimitReached()
+  {
+   if(InpDailyMaxProfit <= 0.0 && InpDailyMaxLoss <= 0.0) return(false);
+
+   double pnl = GetDailyPnL();
+
+   if(InpDailyMaxProfit > 0.0 && pnl >= InpDailyMaxProfit)
+     {
+      static datetime lastProfitLog = 0;
+      datetime today = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
+      if(lastProfitLog != today)
+        {
+         PrintFormat("AjipIDM: Daily MAX PROFIT reached. PnL=%.2f >= %.2f. No new trades.",
+                     pnl, InpDailyMaxProfit);
+         lastProfitLog = today;
+        }
+      return(true);
+     }
+
+   if(InpDailyMaxLoss > 0.0 && pnl <= -InpDailyMaxLoss)
+     {
+      static datetime lastLossLog = 0;
+      datetime today = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
+      if(lastLossLog != today)
+        {
+         PrintFormat("AjipIDM: Daily MAX LOSS reached. PnL=%.2f <= -%.2f. No new trades.",
+                     pnl, InpDailyMaxLoss);
+         lastLossLog = today;
+        }
+      return(true);
+     }
+
+   return(false);
+  }
+
+//==================================================================
 // SWING ARRAY HELPERS
 //==================================================================
 void ResetSwings()

@@ -121,6 +121,8 @@ InpDrawLines    = true           — Draw structure lines on chart
 InpMaxLines     = 500            — Max trendline objects
 InpRR           = 1.0            — Risk:Reward (1=1:1, 2=1:2, 0.5=1:0.5, 0=NO SL)
 InpMinTpPoints  = 0              — Min TP distance in points (0=no filter)
+InpDailyMaxProfit = 0.0          — Daily max profit in account currency (0=disabled)
+InpDailyMaxLoss   = 0.0          — Daily max loss in account currency (0=disabled)
 ```
 
 ### Init
@@ -159,6 +161,7 @@ InpMinTpPoints  = 0              — Min TP distance in points (0=no filter)
   ```
 - Multi-position — tidak ada batasan jumlah posisi terbuka
 - Entry invalidation: body-break sweep → TP to BE (tidak close posisi)
+- Daily limit: InpDailyMaxProfit/InpDailyMaxLoss (0=disabled). Query MT5 history deals hari ini (filter symbol + magic). Skip new entries saat limit tercapai. Existing positions tetap di-manage broker (TP/SL/BE).
 - After TP/SL/BE hit → continue tracking untuk next signal
 
 ---
