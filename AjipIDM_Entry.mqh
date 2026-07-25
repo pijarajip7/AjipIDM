@@ -36,22 +36,24 @@ void CheckEntryInvalidation(MqlRates &bar)
 
       if(bodyBreak)
         {
-         PrintFormat("AjipIDM: BODY BREAK. Ticket=%I64u Dir=%s, sweep=%.5f, close=%.5f — TP to BE",
+         PrintFormat("AjipIDM: BODY BREAK. Ticket=%I64u Dir=%s, sweep=%.5f, close=%.5f",
                      ticket, dir == 1 ? "BUY" : "SELL", sweepPrice, bar.close);
 
-         double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-         double currentTP  = PositionGetDouble(POSITION_TP);
-         double sl         = PositionGetDouble(POSITION_SL);
-
-         // Only modify if TP is not already at BE
-         if(MathAbs(currentTP - entryPrice) >= g_point)
+         if(InpInvalidationMode == INVALIDATION_FIXED_TP)
            {
-            if(trade.PositionModify(ticket, sl, entryPrice))
-               PrintFormat("AjipIDM: TP modified to BE (%.5f) for ticket %I64u", entryPrice, ticket);
+            double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+            double sl         = PositionGetDouble(POSITION_SL);
+            double tpDistance = InpInvalidationTpPoints * g_point;
+            double newTP      = (dir == 1) ? entryPrice + tpDistance : entryPrice - tpDistance;
+
+            if(trade.PositionModify(ticket, sl, newTP))
+               PrintFormat("AjipIDM: TP modified to fixed %d points (%.5f) for ticket %I64u",
+                           InpInvalidationTpPoints, newTP, ticket);
             else
                PrintFormat("AjipIDM: Failed to modify TP for %I64u. retcode=%d (%s)",
                            ticket, trade.ResultRetcode(), trade.ResultRetcodeDescription());
            }
+         // else INVALIDATION_DO_NOTHING: leave TP/SL as is
 
          // Remove from tracking (invalidated, don't re-check)
          RemoveEntry(i);

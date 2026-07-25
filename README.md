@@ -1,6 +1,6 @@
 # AjipIDM — Progress & Documentation
 
-> Strategy: Inducement-centric SMC untuk MT5 EA. Simple structure (SL/SH) tanpa VH/VL. Entry = idm taken + no body break → fade dengan configurable RR. Multi-position dengan invalidation (body-break sweep → TP to BE).
+> Strategy: Inducement-centric SMC untuk MT5 EA. Simple structure (SL/SH) tanpa VH/VL. Entry = idm taken + no body break → fade dengan configurable RR. Multi-position dengan invalidation (body-break sweep → configurable: do nothing / TP fixed points).
 
 ---
 
@@ -89,13 +89,17 @@ Entry premise: idm sweep (wick takes idm) tapi close reclaim.
 
 **Sweep update:** jika bar berikutnya sweep lebih dalam, update sweep level.
 
-**Body break = invalidasi:** close menembus sweep level TERBARU → premise gagal:
+**Body break = invalidasi:** close menembus sweep level TERBARU → premise gagal. Aksi ditentukan oleh `InpInvalidationMode`:
+
 ```
-BUY invalid:  close < sweep level → modify TP to break-even (entry price)
-SELL invalid: close > sweep level → modify TP to break-even (entry price)
+INVALIDATION_DO_NOTHING (default): TP/SL dibiarkan apa adanya, tidak ada modify.
+INVALIDATION_FIXED_TP: TP digeser ke entry ± InpInvalidationTpPoints
+  BUY:  newTP = entryPrice + (InpInvalidationTpPoints * point)
+  SELL: newTP = entryPrice - (InpInvalidationTpPoints * point)
+  InpInvalidationTpPoints = 0 → setara TP to break-even (newTP = entryPrice)
 ```
 
-TP digeser ke BE, SL tetap. Posisi TIDAK di-close — biarkan broker manage.
+SL tetap tidak berubah pada kedua mode. Posisi TIDAK di-close — biarkan broker manage.
 
 **Multi-position:** tiap entry ditrack per-ticket (EntryTracker array: ticket, sweepPrice, dir).
 Auto-cleanup: posisi yang sudah TP/SL hit otomatis di-remove dari tracking.
@@ -123,6 +127,8 @@ InpRR           = 1.0            — Risk:Reward (1=1:1, 2=1:2, 0.5=1:0.5, 0=NO 
 InpMinTpPoints  = 0              — Min TP distance in points (0=no filter)
 InpDailyMaxProfit = 0.0          — Daily max profit in account currency (0=disabled)
 InpDailyMaxLoss   = 0.0          — Daily max loss in account currency (0=disabled)
+InpInvalidationMode     = INVALIDATION_DO_NOTHING — Aksi TP saat body-break invalidasi (DO_NOTHING / FIXED_TP)
+InpInvalidationTpPoints = 300     — Fixed TP points dari entry (dipakai jika mode=FIXED_TP; 0=break-even)
 ```
 
 ### Init
@@ -143,7 +149,7 @@ InpDailyMaxLoss   = 0.0          — Daily max loss in account currency (0=disab
 1. Detect new closed bar (via g_lastBarTime)
 2. UpdateStructure: pullback detection + simple structure build
 3. CheckEntryInvalidation: untuk semua tracked entries:
-   - Body break? (close menembus sweep level) → TP to BE, remove tracking
+   - Body break? (close menembus sweep level) → apply InpInvalidationMode (do nothing / TP fixed points), remove tracking
    - Sweep update? (deeper sweep, jika tidak body break) → update sweep level
    - Auto-cleanup: posisi yang sudah closed → remove tracking
 4. CheckIdmTaken: cek idm taken pada closed bar
@@ -160,7 +166,7 @@ InpDailyMaxLoss   = 0.0          — Daily max loss in account currency (0=disab
   lot = InpTargetAmount / gainPerLot
   ```
 - Multi-position — tidak ada batasan jumlah posisi terbuka
-- Entry invalidation: body-break sweep → TP to BE (tidak close posisi)
+- Entry invalidation: body-break sweep → InpInvalidationMode (DO_NOTHING atau TP fixed points; tidak close posisi)
 - Daily limit: InpDailyMaxProfit/InpDailyMaxLoss (0=disabled). Query MT5 history deals hari ini (filter symbol + magic). Skip new entries saat limit tercapai. Existing positions tetap di-manage broker (TP/SL/BE).
 - After TP/SL/BE hit → continue tracking untuk next signal
 
@@ -404,3 +410,9 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 ### Session 9 (2026-07-25): Revert idm n-1 + origin reversal scan actual bars
 - Revert: UpdateIdm n-1 terlalu agresif (SLU unconfirmed langsung jadi idm → false reversal). Revert ke n-2. Root cause bug asli (#31 stale idm) tetap teratasi via UpdateIdm di live path.
 - Bug: origin reversal pakai last committed swing. Fast reversal (down→up) → lowest bar belum commit jadi SLD → origin uptrend pakai SLD lama. Fix: scan CopyRates dari leg start ke taken bar, cari actual highest high (down) / lowest low (up). Fallback ke committed swing.
+
+### Session 10 (2026-07-26): Invalidation mode dibuat opsional (do nothing / fixed TP)
+- Sebelumnya body-break invalidation hardcoded modify TP ke break-even (entry price).
+- Fix: tambah `ENUM_INVALIDATION_MODE` (`INVALIDATION_DO_NOTHING` default, `INVALIDATION_FIXED_TP`) + input `InpInvalidationTpPoints`.
+- `INVALIDATION_DO_NOTHING`: TP/SL dibiarkan, tidak ada modify sama sekali.
+- `INVALIDATION_FIXED_TP`: TP = entry ± `InpInvalidationTpPoints` (arah sesuai dir BUY/SELL). Set `InpInvalidationTpPoints=0` untuk setara behavior lama (TP to BE).
