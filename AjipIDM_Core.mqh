@@ -124,6 +124,12 @@ void UpdateStructure(MqlRates &bar)
 
    //--- Stage 2: Build simple structure from pullback swings ---
    BuildSimpleStructure();
+
+   //--- Stage 3: Recalculate idm from current structure ---
+   // Without this, g_idmPrice stays stale after init/reversal.
+   // New swings form but idm never updates → CheckIdmTaken checks
+   // against wrong level → idm taken not detected → no reversal.
+   UpdateIdm();
   }
 
 #endif // AJIPIDM_CORE_MQH

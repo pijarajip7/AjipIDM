@@ -34,12 +34,13 @@ Downtrend: SHD0 → SLD1 → SHD1 → SLD2 → SHD2 → ...
 
 ### idm Definition
 
-idm = swing TERAKHIR dari tipe inducement yang memiliki swing berlawanan setelahnya:
-- Uptrend: idm = SL terakhir yang punya SH setelahnya (bukan SL dangling di akhir)
-- Downtrend: idm = SH terakhir yang punya SL setelahnya (bukan SH dangling di akhir)
+idm = swing TERAKHIR dari tipe inducement:
+- Uptrend: idm = SL terakhir (HL terbaru yang jika di-break = uptrend over)
+- Downtrend: idm = SH terakhir (LH terbaru yang jika di-break = downtrend over)
 
-Implementasi (`UpdateIdm`): walk backward dari index n-2, skip swing terakhir (dangling).
-Swing terakhir di array TIDAK pernah jadi idm — pasti ada swing baru setelahnya.
+Implementasi (`UpdateIdm`): walk backward dari index n-1 (INCLUDE swing terakhir / dangling).
+Swing terakhir dari tipe inducement = live inducement level. Dikecualikan sebelumnya (n-2) →
+HL/LH terbaru tidak pernah jadi idm → price bisa break tanpa reversal → trend stale.
 
 idm TIDAK bergeser meski wick lebih dalam. Yang penting hanya close vs idm level.
 
@@ -294,6 +295,10 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 ### Round 8: Stale index pointer in premature-pop (array out of range)
 30. `BuildSimpleStructure` array out of range (line 72,50) saat backtest. Root cause: saat premature-pop, `PopSwingAt` shift elemen array ke kiri, yang membatalkan posisi index untuk KEDUA tipe swing (SH dan SL). Tapi code lama hanya recompute pointer tipe yang di-pop (misal pop SH → cuma cari SH baru), pointer tipe lawan (lastSLIdx) dibiarkan stale. Di iterasi berikutnya, `g_swings[lastSLIdx]` diakses dengan index lama yang >= ArraySize → crash. Fix: setelah PopSwingAt, recompute KETIGA pointer (lastSHIdx, lastSLIdx, lastIdx) sekaligus dalam satu backward scan. Terverifikasi via 20,000-trial fuzz: OLD code 1114 crashes, NEW code 0 crashes.
 
+### Round 9: idm staleness — trend tidak berubah saat idm taken (uptrend)
+31. `UpdateIdm()` tidak pernah dipanggil di live path (`UpdateStructure` di Core.mqh). Hanya dipanggil di `InitStructure` dan `RebuildStructure`. Akibatnya `g_idmPrice` frozen sejak init/reversal terakhir. Fix: tambah `UpdateIdm()` ke `UpdateStructure()` setelah `BuildSimpleStructure`.
+32. `UpdateIdm()` walk backward dari n-2 (skip dangling last swing). Spec lama: "idm = SL terakhir yang punya SH setelahnya". Tapi HL/LH terbaru = live inducement yang jika di-break = trend over. Dikecualikan → price bisa break HL/LH tanpa reversal → trend stale. Fix: walk dari n-1 (include dangling). Spec change: idm = SL/SH terakhir dari tipe inducement (tidak perlu swing lawan setelahnya). Symmetric untuk uptrend/downtrend.
+
 ---
 
 ## 6. Known Limitations & TODO
@@ -378,3 +383,10 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 - Root cause: premature-pop di BuildSimpleStructure hanya recompute pointer tipe yang di-pop; pointer tipe lawan jadi stale setelah PopSwingAt shift elemen
 - Fix: recompute ketiga pointer (lastSHIdx, lastSLIdx, lastIdx) sekaligus setelah pop
 - Verifikasi: 20,000-trial fuzz (OLD 1114 crash, NEW 0 crash). Compile test di MetaEditor menunggu backtest ulang user.
+
+### Session 8 (2026-07-25): idm staleness — trend tidak berubah saat idm taken
+- Bug: uptrend idm taken tapi trend tidak berubah ke downtrend
+- Root cause 1: `UpdateIdm()` tidak dipanggil di live path (`UpdateStructure`). `g_idmPrice` frozen sejak init/reversal. Fix: tambah `UpdateIdm()` ke `UpdateStructure()`.
+- Root cause 2: `UpdateIdm()` skip dangling last swing (walk dari n-2). HL/LH terbaru = live inducement. Fix: walk dari n-1 (include dangling).
+- Spec change: idm = SL/SH terakhir dari tipe inducement (tidak perlu swing lawan setelahnya).
+- Verifikasi: simulation — OLD idm=105 (stale), NEW idm=108 (correct). Price 107 < 108 → reversal fires.
