@@ -303,6 +303,9 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 31. `UpdateIdm()` tidak pernah dipanggil di live path (`UpdateStructure` di Core.mqh). Hanya dipanggil di `InitStructure` dan `RebuildStructure`. Akibatnya `g_idmPrice` frozen sejak init/reversal terakhir. Fix: tambah `UpdateIdm()` ke `UpdateStructure()` setelah `BuildSimpleStructure`.
 32. (REVERTED) Awalnya UpdateIdm diubah walk dari n-1 (include dangling last swing) supaya HL/LH terbaru jadi idm. Tapi ini terlalu agresif: SLU yang baru terbentuk (kandidat unconfirmed) langsung jadi idm → price pullback normal (di bawah SLU kandidat) memicu false idm taken → reversal prematur. Revert ke n-2 (exclude dangling). Spec tetap: idm = SL/SH terakhir yang sudah CONFIRMED (punya swing lawan setelahnya). Root cause bug asli (#31) sudah teratasi dengan UpdateIdm di live path.
 
+### Round 10: Origin reversal pakai committed swing, bukan actual extreme bar
+33. `ReverseToDowntrend` origin = last committed SHU di g_swings. `ReverseToUptrend` origin = last committed SLD. Tapi pada fast reversal (down→up dalam range pendek), extreme bar belum ter-commit jadi swing → origin pakai swing lama yang bukan extreme sebenarnya. Contoh: uptrend reverse down, lowest bar belum jadi SLD → origin uptrend baru = SLD sebelumnya (lebih tinggi), bukan lowest bar. Fix: scan actual bar data (CopyRates) dari leg start (g_pbSwings[0].time) sampai taken bar untuk cari TRUE highest high (downtrend) / lowest low (uptrend). Fallback ke committed swing jika bar scan gagal.
+
 ---
 
 ## 6. Known Limitations & TODO
@@ -394,3 +397,7 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 - Root cause 2: `UpdateIdm()` skip dangling last swing (walk dari n-2). HL/LH terbaru = live inducement. Fix: walk dari n-1 (include dangling).
 - Spec change: idm = SL/SH terakhir dari tipe inducement (tidak perlu swing lawan setelahnya).
 - Verifikasi: simulation — OLD idm=105 (stale), NEW idm=108 (correct). Price 107 < 108 → reversal fires.
+
+### Session 9 (2026-07-25): Revert idm n-1 + origin reversal scan actual bars
+- Revert: UpdateIdm n-1 terlalu agresif (SLU unconfirmed langsung jadi idm → false reversal). Revert ke n-2. Root cause bug asli (#31 stale idm) tetap teratasi via UpdateIdm di live path.
+- Bug: origin reversal pakai last committed swing. Fast reversal (down→up) → lowest bar belum commit jadi SLD → origin uptrend pakai SLD lama. Fix: scan CopyRates dari leg start ke taken bar, cari actual highest high (down) / lowest low (up). Fallback ke committed swing.

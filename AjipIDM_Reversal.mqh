@@ -2,30 +2,72 @@
 #define AJIPIDM_REVERSAL_MQH
 
 // REVERSE TO DOWNTREND
-// idm taken from uptrend. New origin = last SHU.
+// idm taken from uptrend. New origin = HIGHEST HIGH bar in the uptrend leg.
+// Scan actual bar data (not committed swings) — fast reversals may leave
+// the true extreme uncommitted as a swing.
 //==================================================================
 void ReverseToDowntrend(MqlRates &takenBar)
   {
-   // Find last SHU
    double originPrice = 0.0;
    datetime originTime = 0;
-   int n = ArraySize(g_swings);
 
-   for(int i = n - 1; i >= 0; i--)
+   // Scan actual bars from uptrend leg start to taken bar for TRUE highest high.
+   // g_pbSwings[0] = origin of current uptrend leg.
+   int npb = ArraySize(g_pbSwings);
+   if(npb > 0)
      {
-      if(g_swings[i].isHigh)
+      datetime legStart = g_pbSwings[0].time;
+      int legStartShift = iBarShift(_Symbol, InpTimeframe, legStart);
+      int takenShift    = iBarShift(_Symbol, InpTimeframe, takenBar.time);
+      if(legStartShift >= 0 && takenShift >= 0 && legStartShift >= takenShift)
         {
-         originPrice = g_swings[i].price;
-         originTime  = g_swings[i].time;
-         break;
+         int count = legStartShift - takenShift + 1; // inclusive both ends
+         MqlRates legBars[];
+         ArraySetAsSeries(legBars, true);
+         if(CopyRates(_Symbol, InpTimeframe, takenShift, count, legBars) > 0)
+           {
+            double hh = -DBL_MAX;
+            datetime hhTime = 0;
+            for(int i = 0; i < ArraySize(legBars); i++)
+              {
+               if(legBars[i].high > hh)
+                 {
+                  hh = legBars[i].high;
+                  hhTime = legBars[i].time;
+                 }
+              }
+            if(hh > -DBL_MAX)
+              {
+               originPrice = hh;
+               originTime  = hhTime;
+              }
+           }
+        }
+     }
+
+   // Fallback: if bar scan failed, use last committed SHU
+   if(originPrice <= 0.0)
+     {
+      int n = ArraySize(g_swings);
+      for(int i = n - 1; i >= 0; i--)
+        {
+         if(g_swings[i].isHigh)
+           {
+            originPrice = g_swings[i].price;
+            originTime  = g_swings[i].time;
+            break;
+           }
         }
      }
 
    if(originPrice <= 0.0)
      {
-      Print("AjipIDM: ReverseToDowntrend — no SHU origin found!");
+      Print("AjipIDM: ReverseToDowntrend — no origin found!");
       return;
      }
+
+   PrintFormat("AjipIDM: ReverseToDowntrend origin = highest high = %.5f@%s",
+               originPrice, TimeToString(originTime));
 
    // Switch trend
    g_trend = TREND_DOWN;
@@ -69,30 +111,71 @@ void ReverseToDowntrend(MqlRates &takenBar)
 
 //==================================================================
 // REVERSE TO UPTREND
-// idm taken from downtrend. New origin = last SLD.
+// idm taken from downtrend. New origin = LOWEST LOW bar in the downtrend leg.
+// Scan actual bar data (not committed swings) — fast reversals may leave
+// the true extreme uncommitted as a swing.
 //==================================================================
 void ReverseToUptrend(MqlRates &takenBar)
   {
-   // Find last SLD
    double originPrice = 0.0;
    datetime originTime = 0;
-   int n = ArraySize(g_swings);
 
-   for(int i = n - 1; i >= 0; i--)
+   // Scan actual bars from downtrend leg start to taken bar for TRUE lowest low.
+   int npb = ArraySize(g_pbSwings);
+   if(npb > 0)
      {
-      if(!g_swings[i].isHigh)
+      datetime legStart = g_pbSwings[0].time;
+      int legStartShift = iBarShift(_Symbol, InpTimeframe, legStart);
+      int takenShift    = iBarShift(_Symbol, InpTimeframe, takenBar.time);
+      if(legStartShift >= 0 && takenShift >= 0 && legStartShift >= takenShift)
         {
-         originPrice = g_swings[i].price;
-         originTime  = g_swings[i].time;
-         break;
+         int count = legStartShift - takenShift + 1;
+         MqlRates legBars[];
+         ArraySetAsSeries(legBars, true);
+         if(CopyRates(_Symbol, InpTimeframe, takenShift, count, legBars) > 0)
+           {
+            double ll = DBL_MAX;
+            datetime llTime = 0;
+            for(int i = 0; i < ArraySize(legBars); i++)
+              {
+               if(legBars[i].low < ll)
+                 {
+                  ll = legBars[i].low;
+                  llTime = legBars[i].time;
+                 }
+              }
+            if(ll < DBL_MAX)
+              {
+               originPrice = ll;
+               originTime  = llTime;
+              }
+           }
+        }
+     }
+
+   // Fallback: if bar scan failed, use last committed SLD
+   if(originPrice <= 0.0)
+     {
+      int n = ArraySize(g_swings);
+      for(int i = n - 1; i >= 0; i--)
+        {
+         if(!g_swings[i].isHigh)
+           {
+            originPrice = g_swings[i].price;
+            originTime  = g_swings[i].time;
+            break;
+           }
         }
      }
 
    if(originPrice <= 0.0)
      {
-      Print("AjipIDM: ReverseToUptrend — no SLD origin found!");
+      Print("AjipIDM: ReverseToUptrend — no origin found!");
       return;
      }
+
+   PrintFormat("AjipIDM: ReverseToUptrend origin = lowest low = %.5f@%s",
+               originPrice, TimeToString(originTime));
 
    // Switch trend
    g_trend = TREND_UP;
