@@ -34,13 +34,17 @@ Downtrend: SHD0 → SLD1 → SHD1 → SLD2 → SHD2 → ...
 
 ### idm Definition
 
-idm = swing TERAKHIR dari tipe inducement:
-- Uptrend: idm = SL terakhir (HL terbaru yang jika di-break = uptrend over)
-- Downtrend: idm = SH terakhir (LH terbaru yang jika di-break = downtrend over)
+idm = swing TERAKHIR dari tipe inducement yang sudah CONFIRMED (memiliki swing lawan setelahnya):
+- Uptrend: idm = SL terakhir yang punya SH setelahnya (confirmed pullback — price sudah buat HH sejak SL itu)
+- Downtrend: idm = SH terakhir yang punya SL setelahnya (confirmed pullback — price sudah buat LL sejak SH itu)
 
-Implementasi (`UpdateIdm`): walk backward dari index n-1 (INCLUDE swing terakhir / dangling).
-Swing terakhir dari tipe inducement = live inducement level. Dikecualikan sebelumnya (n-2) →
-HL/LH terbaru tidak pernah jadi idm → price bisa break tanpa reversal → trend stale.
+Implementasi (`UpdateIdm`): walk backward dari index n-2 (EXCLUDE swing terakhir / dangling).
+Swing terakhir = kandidat unconfirmed. Contoh uptrend [SL100, SH110, SL105, SH120, SL108]:
+SL108 belum punya SH setelahnya → BUKAN idm. idm = SL105 (punya SH120 setelahnya).
+Saat price buat HH di atas SH120, SL108 otomatis jadi confirmed → jadi idm baru.
+
+UpdateIdm dipanggil di: InitStructure, UpdateStructure (live), RebuildStructure (replay).
+Sebelumnya hanya di Init/Rebuild → g_idmPrice stale setelah init/reversal.
 
 idm TIDAK bergeser meski wick lebih dalam. Yang penting hanya close vs idm level.
 
@@ -297,7 +301,7 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 
 ### Round 9: idm staleness — trend tidak berubah saat idm taken (uptrend)
 31. `UpdateIdm()` tidak pernah dipanggil di live path (`UpdateStructure` di Core.mqh). Hanya dipanggil di `InitStructure` dan `RebuildStructure`. Akibatnya `g_idmPrice` frozen sejak init/reversal terakhir. Fix: tambah `UpdateIdm()` ke `UpdateStructure()` setelah `BuildSimpleStructure`.
-32. `UpdateIdm()` walk backward dari n-2 (skip dangling last swing). Spec lama: "idm = SL terakhir yang punya SH setelahnya". Tapi HL/LH terbaru = live inducement yang jika di-break = trend over. Dikecualikan → price bisa break HL/LH tanpa reversal → trend stale. Fix: walk dari n-1 (include dangling). Spec change: idm = SL/SH terakhir dari tipe inducement (tidak perlu swing lawan setelahnya). Symmetric untuk uptrend/downtrend.
+32. (REVERTED) Awalnya UpdateIdm diubah walk dari n-1 (include dangling last swing) supaya HL/LH terbaru jadi idm. Tapi ini terlalu agresif: SLU yang baru terbentuk (kandidat unconfirmed) langsung jadi idm → price pullback normal (di bawah SLU kandidat) memicu false idm taken → reversal prematur. Revert ke n-2 (exclude dangling). Spec tetap: idm = SL/SH terakhir yang sudah CONFIRMED (punya swing lawan setelahnya). Root cause bug asli (#31) sudah teratasi dengan UpdateIdm di live path.
 
 ---
 

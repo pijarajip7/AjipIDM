@@ -163,18 +163,21 @@ void UpdateIdm()
       return;
      }
 
-   // idm = LAST swing of inducement type, INCLUDING the dangling last swing.
-   // Uptrend:   idm = last SL (the most recent pullback low — if broken, uptrend is over)
-   // Downtrend: idm = last SH (the most recent pullback high — if broken, downtrend is over)
+   // idm = last CONFIRMED swing of inducement type (must have opposite swing after it).
+   // Uptrend:   idm = last SL that has a SH after it (confirmed pullback — price made HH since)
+   // Downtrend: idm = last SH that has a SL after it (confirmed pullback — price made LL since)
    //
-   // Previously walked from n-2 (skipping dangling last swing), but that meant
-   // the newest HL/LH was never the idm → price could break it without triggering
-   // reversal → trend stayed stale. The dangling last swing IS the live inducement.
+   // The dangling last swing is EXCLUDED — it's an unconfirmed candidate.
+   // E.g. uptrend [SL100, SH110, SL105, SH120, SL108]: SL108 has no SH after it → NOT idm.
+   // idm = SL105 (has SH120 after it). Price must break 105 for reversal.
+   // Once price makes new HH above SH120, SL108 gets a SH after it → becomes idm.
+   //
+   // Walk from n-2 (skip last element which is always dangling/unconfirmed).
    if(g_trend == TREND_UP)
      {
-      for(int i = n - 1; i >= 0; i--)
+      for(int i = n - 2; i >= 0; i--)
         {
-         if(!g_swings[i].isHigh) // this is an SL
+         if(!g_swings[i].isHigh) // this is an SL with SH after it
            {
             g_idmPrice = g_swings[i].price;
             return;
@@ -183,9 +186,9 @@ void UpdateIdm()
      }
    else if(g_trend == TREND_DOWN)
      {
-      for(int i = n - 1; i >= 0; i--)
+      for(int i = n - 2; i >= 0; i--)
         {
-         if(g_swings[i].isHigh) // this is a SH
+         if(g_swings[i].isHigh) // this is a SH with SL after it
            {
             g_idmPrice = g_swings[i].price;
             return;
