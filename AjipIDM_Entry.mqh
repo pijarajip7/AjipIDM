@@ -163,8 +163,13 @@ void CheckIdmTaken(MqlRates &bar)
 
       if(doEntry && entryBuy && !g_initMode)
         {
+         // HTF trend filter
+         if(InpUseHtfFilter && g_htfTrend != TREND_UP)
+           {
+            PrintFormat("AjipIDM: BUY skip — HTF filter (HTF trend=%s, need UP).", TrendString(g_htfTrend));
+           }
          // Daily limit check
-         if(DailyLimitReached())
+         else if(DailyLimitReached())
            {
             PrintFormat("AjipIDM: BUY skip — daily limit reached.");
            }
@@ -210,8 +215,13 @@ void CheckIdmTaken(MqlRates &bar)
 
       if(doEntry && !entryBuy && !g_initMode)
         {
+         // HTF trend filter
+         if(InpUseHtfFilter && g_htfTrend != TREND_DOWN)
+           {
+            PrintFormat("AjipIDM: SELL skip — HTF filter (HTF trend=%s, need DOWN).", TrendString(g_htfTrend));
+           }
          // Daily limit check
-         if(DailyLimitReached())
+         else if(DailyLimitReached())
            {
             PrintFormat("AjipIDM: SELL skip — daily limit reached.");
            }

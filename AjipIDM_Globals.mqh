@@ -69,6 +69,18 @@ EntryTracker  g_entries[];
 // Bar tracking
 datetime       g_lastBarTime = 0;  // for new-bar detection within OnTick
 
+// HTF context — structure/idm tracking only (never trades, never draws)
+ENUM_TREND     g_htfTrend          = TREND_NONE;
+Swing          g_htfSwings[];
+ENUM_PHASE     g_htfPhase;
+BaseCandle     g_htfBase;
+Swing          g_htfPbSwings[];
+bool           g_htfOutsidePending = false;
+BaseCandle     g_htfOutsideBar;
+double         g_htfIdmPrice       = 0.0;
+bool           g_htfIdmTaken       = false;
+datetime       g_htfLastBarTime    = 0;
+
 // Symbol info cache
 int            g_digits;
 double         g_point;

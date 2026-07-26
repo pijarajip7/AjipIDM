@@ -30,6 +30,8 @@ input double          InpDailyMaxProfit = 0.0;      // Daily max profit (0=disab
 input double          InpDailyMaxLoss   = 0.0;      // Daily max loss (0=disabled, stop new trades when reached)
 input ENUM_INVALIDATION_MODE InpInvalidationMode = INVALIDATION_DO_NOTHING; // Invalidation TP action on body break
 input int             InpInvalidationTpPoints = 300; // Fixed TP points (used when mode=FIXED_TP)
+input bool             InpUseHtfFilter = false;      // Enable HTF trend filter on entries
+input ENUM_TIMEFRAMES  InpHtfTimeframe = PERIOD_H1;  // Higher timeframe for trend filter
 input int             InpCandlesInit = 50;          // Lookback candles for initial trend
 input ulong           InpDeviation   = 10;          // Slippage (points)
 input long            InpMagicNumber = 99001;       // Magic number
@@ -44,6 +46,7 @@ input int             InpMaxLines    = 500;         // Max trendline objects (cl
 #include "AjipIDM_Entry.mqh"
 #include "AjipIDM_Trade.mqh"
 #include "AjipIDM_Core.mqh"
+#include "AjipIDM_HtfContext.mqh"
 
 // INIT
 //==================================================================
@@ -71,6 +74,10 @@ int OnInit()
       // Not fatal; OnTick will attempt rebuild
      }
 
+   // Build initial HTF context (structure/idm only, never trades)
+   if(InpUseHtfFilter && !InitHtfStructure())
+      Print("AjipIDM: InitHtfStructure failed — will retry on first tick");
+
    ChartRedraw();
    return(INIT_SUCCEEDED);
   }
@@ -88,6 +95,23 @@ void OnDeinit(const int reason)
 //==================================================================
 void OnTick()
   {
+   // HTF context — own new-bar gate, runs every tick since HTF bars close
+   // less often than LTF bars (must not be gated behind the LTF early-return
+   // below, or an HTF closed-bar boundary could be silently skipped).
+   if(InpUseHtfFilter)
+     {
+      MqlRates htfRates[];
+      ArraySetAsSeries(htfRates, true);
+      if(CopyRates(_Symbol, InpHtfTimeframe, 0, 3, htfRates) >= 3
+         && htfRates[1].time != g_htfLastBarTime)
+        {
+         g_htfLastBarTime = htfRates[1].time;
+         UpdateHtfStructure(htfRates[1]);
+         if(g_htfIdmPrice > 0.0)
+            HtfCheckIdmTaken(htfRates[1]);
+        }
+     }
+
    MqlRates rates[];
    ArraySetAsSeries(rates, true);
    int copied = CopyRates(_Symbol, InpTimeframe, 0, 3, rates);

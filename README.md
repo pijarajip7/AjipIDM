@@ -107,11 +107,28 @@ Auto-cleanup: posisi yang sudah TP/SL hit otomatis di-remove dari tracking.
 **Body break dievaluasi SEBELUM sweep update** (fix bug: sweep update duluan menyembunyikan body break).
 Invalidasi dievaluasi pada CLOSED bar, BEFORE CheckIdmTaken.
 
+### HTF Trend Filter (opsional)
+
+Filter entry berdasarkan trend di timeframe lebih tinggi (`InpHtfTimeframe`), pakai algoritma SL/SH + idm YANG SAMA seperti LTF (bukan MA/indicator lain) — supaya definisi trend konsisten di seluruh EA.
+
+```
+InpUseHtfFilter=true:
+  BUY  entry hanya jalan jika g_htfTrend == TREND_UP
+  SELL entry hanya jalan jika g_htfTrend == TREND_DOWN
+  g_htfTrend == TREND_NONE (belum ke-init) → BUY dan SELL dua-duanya diblok
+```
+
+HTF context adalah engine terpisah & mandiri (`AjipIDM_HtfContext.mqh`, globals `g_htf*`):
+- Struktur/idm-nya sendiri, di-update tiap HTF bar closed (gate independen dari LTF new-bar gate — HTF bar closed lebih jarang dari LTF, jadi HTF check jalan tiap tick, TIDAK boleh diletakkan setelah LTF early-return).
+- TIDAK PERNAH entry, TIDAK PERNAH invalidation, TIDAK PERNAH daily-limit check, TIDAK draw chart objects — murni context/filter.
+- Reuse `InpCandlesInit` untuk lookback init (tidak ada input terpisah).
+- Logic (pullback, simple structure, idm, reversal) adalah port 1:1 dari engine LTF — lihat file untuk detail.
+
 ---
 
 ## 2. EA Architecture
 
-Files: `AjipIDM.mq5` (main) + 7 `.mqh` includes (see Files table below).
+Files: `AjipIDM.mq5` (main) + 8 `.mqh` includes (see Files table below).
 
 ### Input Parameters
 
@@ -129,6 +146,8 @@ InpDailyMaxProfit = 0.0          — Daily max profit in account currency (0=dis
 InpDailyMaxLoss   = 0.0          — Daily max loss in account currency (0=disabled)
 InpInvalidationMode     = INVALIDATION_DO_NOTHING — Aksi TP saat body-break invalidasi (DO_NOTHING / FIXED_TP)
 InpInvalidationTpPoints = 300     — Fixed TP points dari entry (dipakai jika mode=FIXED_TP; 0=break-even)
+InpUseHtfFilter = false          — Enable HTF trend filter on entries
+InpHtfTimeframe = PERIOD_H1      — Higher timeframe untuk trend filter
 ```
 
 ### Init
@@ -146,13 +165,16 @@ InpInvalidationTpPoints = 300     — Fixed TP points dari entry (dipakai jika m
 ### OnTick
 
 ```
-1. Detect new closed bar (via g_lastBarTime)
+0. (jika InpUseHtfFilter) Detect new closed HTF bar (via g_htfLastBarTime, gate TERPISAH dari LTF,
+   jalan tiap tick SEBELUM early-return LTF): UpdateHtfStructure + HtfCheckIdmTaken (structure-only, no entry)
+1. Detect new closed LTF bar (via g_lastBarTime)
 2. UpdateStructure: pullback detection + simple structure build
 3. CheckEntryInvalidation: untuk semua tracked entries:
    - Body break? (close menembus sweep level) → apply InpInvalidationMode (do nothing / TP fixed points), remove tracking
    - Sweep update? (deeper sweep, jika tidak body break) → update sweep level
    - Auto-cleanup: posisi yang sudah closed → remove tracking
 4. CheckIdmTaken: cek idm taken pada closed bar
+   - Filter gate sebelum entry: HTF trend filter (jika enabled) → daily limit → TP calc → OpenTrade
 5. If entry: place MT5 order, AddEntry to tracking
 6. Multi-position — tidak ada batasan jumlah posisi
 ```
@@ -342,6 +364,7 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 | `AjipIDM_Entry.mqh` | CheckIdmTaken + entry logic + entry invalidation tracking |
 | `AjipIDM_Trade.mqh` | OpenTrade, lot calc, swing helpers |
 | `AjipIDM_Core.mqh` | InitStructure, OnTick dispatch |
+| `AjipIDM_HtfContext.mqh` | HTF trend filter — trimmed structure/idm engine (context-only, no trading) |
 | `~/.hermes/skills/trading/ajipidm/SKILL.md` | Skill documentation |
 | `docs/perception-alignment.md` | Reference: pullback & simple structure rules |
 
@@ -416,3 +439,11 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 - Fix: tambah `ENUM_INVALIDATION_MODE` (`INVALIDATION_DO_NOTHING` default, `INVALIDATION_FIXED_TP`) + input `InpInvalidationTpPoints`.
 - `INVALIDATION_DO_NOTHING`: TP/SL dibiarkan, tidak ada modify sama sekali.
 - `INVALIDATION_FIXED_TP`: TP = entry ± `InpInvalidationTpPoints` (arah sesuai dir BUY/SELL). Set `InpInvalidationTpPoints=0` untuk setara behavior lama (TP to BE).
+
+### Session 11 (2026-07-26): HTF trend filter
+- Fitur baru: filter entry berdasarkan trend di timeframe lebih tinggi (`InpUseHtfFilter`, `InpHtfTimeframe`).
+- Desain: bukan refactor engine LTF jadi class untuk dipakai 2x — engine LTF yang sudah battle-tested (10 round bug fix di section 5) dibiarkan utuh, TIDAK disentuh. Sebagai gantinya, dibuat file baru `AjipIDM_HtfContext.mqh` berisi port 1:1 (trimmed) dari pipeline structure/idm, dengan prefix `Htf`/`g_htf`, khusus untuk HTF context.
+- HTF engine: structure/idm tracking sama persis (pullback, simple structure, idm, reversal, replay) tapi TANPA entry placement, invalidation, daily-limit, atau chart drawing — karena HTF tidak pernah trading.
+- Filter rule: BUY entry hanya jalan jika `g_htfTrend == TREND_UP`, SELL hanya jika `g_htfTrend == TREND_DOWN`. `TREND_NONE` (belum ke-init) otomatis blok keduanya.
+- OnTick: HTF new-bar check jalan tiap tick, SEBELUM early-return gate LTF (karena HTF bar closed lebih jarang — kalau diletakkan setelah gate LTF, boundary HTF bisa ke-skip).
+- `InpUseHtfFilter=false` (default) → zero behavior change dari sebelumnya (filter check short-circuit di awal kondisi).
