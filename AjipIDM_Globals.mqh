@@ -37,7 +37,8 @@ enum ENUM_PHASE
 // GLOBALS
 //==================================================================
 CTrade         trade;
-string         g_objPrefix = "AjipIDM_";
+string         g_objPrefix   = "AjipIDM_";
+string         g_panelPrefix = "AjipIDMPanel_"; // distinct from g_objPrefix — DrawSwings() wipes everything under g_objPrefix on every redraw
 
 // Active structure tracking
 ENUM_TREND     g_trend          = TREND_NONE;

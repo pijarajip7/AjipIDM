@@ -128,7 +128,7 @@ HTF context adalah engine terpisah & mandiri (`AjipIDM_HtfContext.mqh`, globals 
 
 ## 2. EA Architecture
 
-Files: `AjipIDM.mq5` (main) + 8 `.mqh` includes (see Files table below).
+Files: `AjipIDM.mq5` (main) + 9 `.mqh` includes (see Files table below).
 
 ### Input Parameters
 
@@ -148,7 +148,26 @@ InpInvalidationMode     = INVALIDATION_DO_NOTHING — Aksi TP saat body-break in
 InpInvalidationTpPoints = 300     — Fixed TP points dari entry (dipakai jika mode=FIXED_TP; 0=break-even)
 InpUseHtfFilter = false          — Enable HTF trend filter on entries
 InpHtfTimeframe = PERIOD_H1      — Higher timeframe untuk trend filter
+InpShowPanel    = true           — Show info panel (trend + P/L) on chart
+InpPanelCorner  = CORNER_LEFT_UPPER — Panel corner
+InpPanelX       = 10             — Panel X offset (px)
+InpPanelY       = 20             — Panel Y offset (px)
 ```
+
+### Info Panel (opsional)
+
+Dashboard on-chart, refresh SEKALI PER CLOSED LTF BAR (bukan timer — supaya behavior identik live dan di Strategy Tester, konsisten dengan cadence seluruh EA yang bar-driven):
+
+```
+AjipIDM
+Trend:     UP / DOWN / NONE     (warna: hijau/merah/abu-abu)
+HTF Trend: UP / DOWN / NONE / OFF (OFF jika InpUseHtfFilter=false)
+Today P/L: <realized, deals hari ini>
+Week P/L:  <realized, sejak Senin 00:00>
+Month P/L: <realized, sejak tanggal 1 00:00>
+```
+
+P/L dihitung dari realized deals (symbol + magic number sama), sama persis definisinya dengan `GetDailyPnL` yang dipakai daily-limit — BUKAN floating/unrealized PnL posisi terbuka. Object chart pakai prefix `g_panelPrefix` ("AjipIDMPanel_"), terpisah dari `g_objPrefix` ("AjipIDM_") supaya tidak ke-wipe oleh `ObjectsDeleteAll` di `DrawSwings()`.
 
 ### Init
 
@@ -365,6 +384,7 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 | `AjipIDM_Trade.mqh` | OpenTrade, lot calc, swing helpers |
 | `AjipIDM_Core.mqh` | InitStructure, OnTick dispatch |
 | `AjipIDM_HtfContext.mqh` | HTF trend filter — trimmed structure/idm engine (context-only, no trading) |
+| `AjipIDM_Panel.mqh` | On-chart info panel — trend, HTF trend, today/week/month realized P/L |
 | `~/.hermes/skills/trading/ajipidm/SKILL.md` | Skill documentation |
 | `docs/perception-alignment.md` | Reference: pullback & simple structure rules |
 
@@ -447,3 +467,9 @@ Hasil: [SH(origin), SL(4132), SH(4138.92)]
 - Filter rule: BUY entry hanya jalan jika `g_htfTrend == TREND_UP`, SELL hanya jika `g_htfTrend == TREND_DOWN`. `TREND_NONE` (belum ke-init) otomatis blok keduanya.
 - OnTick: HTF new-bar check jalan tiap tick, SEBELUM early-return gate LTF (karena HTF bar closed lebih jarang — kalau diletakkan setelah gate LTF, boundary HTF bisa ke-skip).
 - `InpUseHtfFilter=false` (default) → zero behavior change dari sebelumnya (filter check short-circuit di awal kondisi).
+
+### Session 12 (2026-07-26): On-chart info panel
+- Fitur baru: dashboard on-chart (`AjipIDM_Panel.mqh`) — Trend, HTF Trend, Today/Week/Month P/L. Input `InpShowPanel`, `InpPanelCorner`, `InpPanelX`, `InpPanelY`.
+- Refresh sekali per closed LTF bar (bukan `OnTimer`) — `OnTimer` tidak reliable di Strategy Tester, sedangkan `OnTick` per-bar cadence sudah dipakai konsisten di seluruh EA ini.
+- P/L: realized deals only (symbol + magic), definisi sama dengan `GetDailyPnL` yang sudah dipakai daily-limit. Ditambah `GetPeriodPnL` (shared helper), `GetWeekPnL` (sejak Senin 00:00), `GetMonthPnL` (sejak tanggal 1 00:00) di `AjipIDM_Trade.mqh`.
+- Object prefix panel (`g_panelPrefix = "AjipIDMPanel_"`) sengaja dibuat TIDAK diawali `g_objPrefix` ("AjipIDM_") — kalau sama, `DrawSwings()` yang jalan `ObjectsDeleteAll(0, g_objPrefix)` tiap redraw bakal ikut menghapus panel.

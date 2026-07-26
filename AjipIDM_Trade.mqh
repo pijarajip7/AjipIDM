@@ -120,15 +120,12 @@ double CalcLot(double tpDistance)
   }
 
 //==================================================================
-// GET DAILY PNL — sum profit of all closed deals today (this symbol + magic)
-// Returns total realized P/L for the current trading day.
+// GET PERIOD PNL — sum realized profit of closed deals (this symbol + magic)
+// in [from, to]. Shared by GetDailyPnL/GetWeekPnL/GetMonthPnL.
 //==================================================================
-double GetDailyPnL()
+double GetPeriodPnL(datetime from, datetime to)
   {
-   datetime dayStart = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
-   datetime dayEnd   = dayStart + 86400;
-
-   if(!HistorySelect(dayStart, dayEnd)) return(0.0);
+   if(!HistorySelect(from, to)) return(0.0);
 
    double total = 0.0;
    int    ndeals = HistoryDealsTotal();
@@ -153,6 +150,49 @@ double GetDailyPnL()
      }
 
    return(total);
+  }
+
+//==================================================================
+// GET DAILY PNL — sum profit of all closed deals today (this symbol + magic)
+// Returns total realized P/L for the current trading day.
+//==================================================================
+double GetDailyPnL()
+  {
+   datetime dayStart = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
+   datetime dayEnd   = dayStart + 86400;
+   return(GetPeriodPnL(dayStart, dayEnd));
+  }
+
+//==================================================================
+// GET WEEK PNL — realized P/L from this week's Monday 00:00 to now
+//==================================================================
+double GetWeekPnL()
+  {
+   datetime dayStart = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
+
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   int dow = dt.day_of_week; // 0=Sunday..6=Saturday
+   int daysSinceMonday = (dow == 0) ? 6 : (dow - 1);
+
+   datetime weekStart = dayStart - daysSinceMonday * 86400;
+   return(GetPeriodPnL(weekStart, TimeCurrent()));
+  }
+
+//==================================================================
+// GET MONTH PNL — realized P/L from the 1st of this month 00:00 to now
+//==================================================================
+double GetMonthPnL()
+  {
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   dt.day  = 1;
+   dt.hour = 0;
+   dt.min  = 0;
+   dt.sec  = 0;
+
+   datetime monthStart = StructToTime(dt);
+   return(GetPeriodPnL(monthStart, TimeCurrent()));
   }
 
 //==================================================================
@@ -279,6 +319,7 @@ void DrawSwings()
 void CleanupAllObjects()
   {
    ObjectsDeleteAll(0, g_objPrefix);
+   ObjectsDeleteAll(0, g_panelPrefix);
   }
 
 //+------------------------------------------------------------------+

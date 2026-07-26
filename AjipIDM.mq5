@@ -37,6 +37,10 @@ input ulong           InpDeviation   = 10;          // Slippage (points)
 input long            InpMagicNumber = 99001;       // Magic number
 input bool            InpDrawLines   = true;        // Draw structure lines on chart
 input int             InpMaxLines    = 500;         // Max trendline objects (cleanup)
+input bool             InpShowPanel   = true;             // Show info panel (trend + P/L)
+input ENUM_BASE_CORNER InpPanelCorner = CORNER_LEFT_UPPER; // Panel corner
+input int              InpPanelX      = 10;               // Panel X offset (px)
+input int              InpPanelY      = 20;               // Panel Y offset (px)
 
 //--- AjipIDM module includes (order matters: globals first, then deps) ---
 #include "AjipIDM_Globals.mqh"
@@ -47,6 +51,7 @@ input int             InpMaxLines    = 500;         // Max trendline objects (cl
 #include "AjipIDM_Trade.mqh"
 #include "AjipIDM_Core.mqh"
 #include "AjipIDM_HtfContext.mqh"
+#include "AjipIDM_Panel.mqh"
 
 // INIT
 //==================================================================
@@ -77,6 +82,8 @@ int OnInit()
    // Build initial HTF context (structure/idm only, never trades)
    if(InpUseHtfFilter && !InitHtfStructure())
       Print("AjipIDM: InitHtfStructure failed — will retry on first tick");
+
+   UpdatePanel();
 
    ChartRedraw();
    return(INIT_SUCCEEDED);
@@ -136,5 +143,8 @@ void OnTick()
 
    // 3. Check idm taken on the just-closed bar
    CheckIdmTaken(rates[1]);
+
+   // 4. Refresh info panel (trend + P/L)
+   UpdatePanel();
   }
 
