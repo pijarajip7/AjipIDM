@@ -39,6 +39,7 @@ enum ENUM_PHASE
 CTrade         trade;
 string         g_objPrefix   = "AjipIDM_";
 string         g_panelPrefix = "AjipIDMPanel_"; // distinct from g_objPrefix — DrawSwings() wipes everything under g_objPrefix on every redraw
+string         g_htfObjPrefix = "AjipIDMHtf_";   // HTF swing/idm lines — also distinct, same reason
 
 // Active structure tracking
 ENUM_TREND     g_trend          = TREND_NONE;

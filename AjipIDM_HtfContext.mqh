@@ -4,7 +4,9 @@
 // HTF CONTEXT — trimmed structure/idm engine for the higher timeframe.
 // Ported from AjipIDM_Pullback/Structure/Reversal/Entry/Core.mqh, same
 // rules, operating on g_htf* globals + InpHtfTimeframe. Structure/idm
-// tracking only — never places trades, never draws chart objects.
+// tracking only — never places trades, never invalidates, never checks
+// daily limits. It does draw its own swing/idm lines (DrawHtfSwings, own
+// object prefix) for visualization.
 //==================================================================
 
 // HTF DETECT PULLBACK — port of DetectPullback (AjipIDM_Pullback.mqh)
@@ -419,6 +421,8 @@ void HtfReverseToDowntrend(MqlRates &takenBar)
 
    PrintFormat("AjipIDM: HTF Reversed to DOWN. Origin=%.5f@%s, swings=%d",
                originPrice, TimeToString(originTime), ArraySize(g_htfSwings));
+
+   DrawHtfSwings();
   }
 
 //==================================================================
@@ -508,6 +512,8 @@ void HtfReverseToUptrend(MqlRates &takenBar)
 
    PrintFormat("AjipIDM: HTF Reversed to UP. Origin=%.5f@%s, swings=%d",
                originPrice, TimeToString(originTime), ArraySize(g_htfSwings));
+
+   DrawHtfSwings();
   }
 
 //==================================================================
@@ -659,7 +665,66 @@ bool InitHtfStructure()
    PrintFormat("AjipIDM: HTF structure built. Trend=%s, Swings=%d, idm=%.5f",
                TrendString(g_htfTrend), ArraySize(g_htfSwings), g_htfIdmPrice);
 
+   DrawHtfSwings();
+
    return(true);
+  }
+
+//==================================================================
+// DRAW HTF SWINGS — HTF structure zigzag + idm line. Port of DrawSwings,
+// distinct object prefix (g_htfObjPrefix) and dotted/distinct colors so
+// HTF lines are visually distinguishable from LTF ones and never wiped
+// by DrawSwings()'s ObjectsDeleteAll(0, g_objPrefix).
+//==================================================================
+void DrawHtfSwings()
+  {
+   if(!InpDrawLines || !InpUseHtfFilter) return;
+
+   ObjectsDeleteAll(0, g_htfObjPrefix);
+
+   int n = ArraySize(g_htfSwings);
+   if(n < 2) return;
+
+   for(int i = 0; i < n; i++)
+     {
+      string name = g_htfObjPrefix + "SW_" + IntegerToString(i);
+      datetime t1 = g_htfSwings[i].time;
+      double  p1  = g_htfSwings[i].price;
+
+      datetime t2;
+      double  p2;
+      if(i < n - 1)
+        {
+         t2 = g_htfSwings[i + 1].time;
+         p2 = g_htfSwings[i + 1].price;
+        }
+      else
+        {
+         t2 = TimeCurrent();
+         p2 = p1;
+        }
+
+      ObjectCreate(0, name, OBJ_TREND, 0, t1, p1, t2, p2);
+      ObjectSetInteger(0, name, OBJPROP_COLOR,
+                       g_htfSwings[i].isHigh ? clrMediumPurple : clrGoldenrod);
+      ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
+      ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_DOT);
+      ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, false);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+     }
+
+   // idm line (only if valid)
+   if(g_htfIdmPrice > 0.0)
+     {
+      string idmName = g_htfObjPrefix + "IDM";
+      ObjectCreate(0, idmName, OBJ_HLINE, 0, 0, g_htfIdmPrice);
+      ObjectSetInteger(0, idmName, OBJPROP_COLOR, clrYellow);
+      ObjectSetInteger(0, idmName, OBJPROP_WIDTH, 1);
+      ObjectSetInteger(0, idmName, OBJPROP_STYLE, STYLE_DASHDOT);
+      ObjectSetInteger(0, idmName, OBJPROP_SELECTABLE, false);
+     }
+
+   ChartRedraw();
   }
 
 #endif // AJIPIDM_HTFCONTEXT_MQH

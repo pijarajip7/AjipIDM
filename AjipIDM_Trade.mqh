@@ -320,6 +320,7 @@ void CleanupAllObjects()
   {
    ObjectsDeleteAll(0, g_objPrefix);
    ObjectsDeleteAll(0, g_panelPrefix);
+   ObjectsDeleteAll(0, g_htfObjPrefix);
   }
 
 //+------------------------------------------------------------------+

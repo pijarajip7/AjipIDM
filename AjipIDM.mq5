@@ -114,6 +114,7 @@ void OnTick()
         {
          g_htfLastBarTime = htfRates[1].time;
          UpdateHtfStructure(htfRates[1]);
+         DrawHtfSwings();
          if(g_htfIdmPrice > 0.0)
             HtfCheckIdmTaken(htfRates[1]);
         }
