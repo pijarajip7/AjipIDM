@@ -39,10 +39,10 @@
 | `AjipIDM_Structure.mqh` | Stage 2: simple structure build (filter + premature update) |
 | `AjipIDM_Reversal.mqh` | ReverseToDowntrend/Up + RebuildStructure (live replay) |
 | `AjipIDM_Entry.mqh` | CheckIdmTaken + entry logic + entry invalidation tracking |
-| `AjipIDM_Trade.mqh` | OpenTrade, lot calc, swing helpers |
+| `AjipIDM_Trade.mqh` | OpenTrade, lot calc, swing helpers, MFE/MAE CSV export |
 | `AjipIDM_Core.mqh` | InitStructure, OnTick dispatch |
 | `AjipIDM_HtfContext.mqh` | HTF trend filter — trimmed structure/idm engine (context-only, no trading) + chart drawing |
-| `AjipIDM_Panel.mqh` | On-chart info panel — trend, HTF trend, today/week/month realized P/L |
+| `AjipIDM_Panel.mqh` | On-chart info panel — trend, HTF trend, today/week/month realized P/L, live open MFE/MAE |
 | `docs/concept.md` | Konsep & strategi |
 | `docs/architecture.md` | EA architecture (inputs, Init/OnTick, position management) |
 | `docs/swing-detection.md` | 2-stage swing detection algorithm |

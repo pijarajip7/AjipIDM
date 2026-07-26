@@ -235,6 +235,66 @@ bool DailyLimitReached()
   }
 
 //==================================================================
+// WRITE TRADE CSV — append one closed-trade row (entry + exit + MFE/MAE)
+// to MQL5/Files/AjipIDM_Trades_<symbol>_<magic>.csv. Called once per
+// position from CheckEntryInvalidation right when the position is
+// detected closed (TP/SL/BE hit).
+//==================================================================
+void WriteTradeCsv(const EntryTracker &e)
+  {
+   double   exitPrice   = 0.0;
+   datetime exitTime    = 0;
+   string   reason      = "UNKNOWN";
+   double   realizedPnl = 0.0;
+
+   if(HistorySelectByPosition(e.ticket))
+     {
+      int ndeals = HistoryDealsTotal();
+      for(int i = 0; i < ndeals; i++)
+        {
+         ulong dealTicket = HistoryDealGetTicket(i);
+         if(dealTicket == 0) continue;
+
+         long entryType = HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+         if(entryType != DEAL_ENTRY_OUT && entryType != DEAL_ENTRY_OUT_BY) continue;
+
+         exitPrice = HistoryDealGetDouble(dealTicket, DEAL_PRICE);
+         exitTime  = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
+         realizedPnl += HistoryDealGetDouble(dealTicket, DEAL_PROFIT)
+                      + HistoryDealGetDouble(dealTicket, DEAL_SWAP)
+                      + HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
+
+         long dealReason = HistoryDealGetInteger(dealTicket, DEAL_REASON);
+         if(dealReason == DEAL_REASON_TP)      reason = "TP";
+         else if(dealReason == DEAL_REASON_SL) reason = "SL";
+         else if(dealReason == DEAL_REASON_SO) reason = "STOPOUT";
+         else                                  reason = "OTHER";
+        }
+     }
+
+   string fname  = "AjipIDM_Trades_" + _Symbol + "_" + IntegerToString(InpMagicNumber) + ".csv";
+   bool   exists = FileIsExist(fname);
+   int    handle = FileOpen(fname, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI);
+   if(handle == INVALID_HANDLE)
+     {
+      PrintFormat("AjipIDM: WriteTradeCsv — failed to open %s, error=%d", fname, GetLastError());
+      return;
+     }
+
+   FileSeek(handle, 0, SEEK_END);
+   if(!exists)
+      FileWriteString(handle, "Ticket,Dir,EntryTime,EntryPrice,ExitTime,ExitPrice,CloseReason,RealizedPnL,MFE,MAE\r\n");
+
+   string line = StringFormat("%I64u,%s,%s,%.5f,%s,%.5f,%s,%.2f,%.2f,%.2f\r\n",
+                               e.ticket, e.dir == 1 ? "BUY" : "SELL",
+                               TimeToString(e.entryTime, TIME_DATE | TIME_MINUTES), e.entryPrice,
+                               TimeToString(exitTime, TIME_DATE | TIME_MINUTES), exitPrice,
+                               reason, realizedPnl, e.mfe, e.mae);
+   FileWriteString(handle, line);
+   FileClose(handle);
+  }
+
+//==================================================================
 // SWING ARRAY HELPERS
 //==================================================================
 void ResetSwings()

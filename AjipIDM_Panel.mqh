@@ -1,9 +1,11 @@
 #ifndef AJIPIDM_PANEL_MQH
 #define AJIPIDM_PANEL_MQH
 
-// INFO PANEL — on-chart dashboard: current trend, HTF trend, and
-// today/this-week/this-month realized P/L. Refreshed once per closed LTF
-// bar (same cadence as everything else in this EA — not a timer, so
+// INFO PANEL — on-chart dashboard: current trend, HTF trend,
+// today/this-week/this-month realized P/L, and live open MFE/MAE (summed
+// across tracked open positions — updated every tick via UpdateMfeMae()
+// in AjipIDM_Entry.mqh). The panel itself still refreshes once per closed
+// LTF bar (same cadence as everything else in this EA — not a timer, so
 // behavior is identical live and in Strategy Tester). Uses g_panelPrefix,
 // distinct from g_objPrefix so DrawSwings()'s ObjectsDeleteAll doesn't
 // wipe it out.
@@ -46,7 +48,7 @@ void UpdatePanel()
    if(!InpShowPanel) return;
 
    const int lineH = 16;
-   const int lines = 6;
+   const int lines = 8;
    int y = 0;
 
    // Background box sized to fit the content
@@ -86,6 +88,20 @@ void UpdatePanel()
    PanelLabel(g_panelPrefix + "Week", y, StringFormat("Week P/L:  %.2f", weekPnl), PnlColor(weekPnl));
    y += lineH;
    PanelLabel(g_panelPrefix + "Month", y, StringFormat("Month P/L: %.2f", monthPnl), PnlColor(monthPnl));
+   y += lineH;
+
+   // Open MFE/MAE — summed across all currently tracked open positions
+   double openMfe = 0.0, openMae = 0.0;
+   int    nOpen   = ArraySize(g_entries);
+   for(int i = 0; i < nOpen; i++)
+     {
+      openMfe += g_entries[i].mfe;
+      openMae += g_entries[i].mae;
+     }
+
+   PanelLabel(g_panelPrefix + "Mfe", y, StringFormat("Open MFE:  %.2f", openMfe), PnlColor(openMfe));
+   y += lineH;
+   PanelLabel(g_panelPrefix + "Mae", y, StringFormat("Open MAE:  %.2f", openMae), PnlColor(openMae));
    y += lineH;
 
    ChartRedraw();

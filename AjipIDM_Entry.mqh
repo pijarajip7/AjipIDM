@@ -19,7 +19,8 @@ void CheckEntryInvalidation(MqlRates &bar)
       // Check if position still exists
       if(!PositionSelectByTicket(ticket))
         {
-         // Position closed (TP/SL hit) — remove from tracking
+         // Position closed (TP/SL hit) — log MFE/MAE to CSV, remove from tracking
+         WriteTradeCsv(g_entries[i]);
          RemoveEntry(i);
          continue;
         }
@@ -90,6 +91,32 @@ void AddEntry(ulong ticket, double sweepPrice, int dir)
    g_entries[n].ticket      = ticket;
    g_entries[n].sweepPrice  = sweepPrice;
    g_entries[n].dir         = dir;
+   g_entries[n].mfe         = 0.0;
+   g_entries[n].mae         = 0.0;
+
+   if(PositionSelectByTicket(ticket))
+     {
+      g_entries[n].entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      g_entries[n].entryTime  = (datetime)PositionGetInteger(POSITION_TIME);
+     }
+  }
+
+//==================================================================
+// UPDATE MFE/MAE — track best/worst floating P/L ($) for every tracked
+// open position. Called every tick (not gated by new-bar) so intra-bar
+// excursions are captured, not just closed-bar extremes.
+//==================================================================
+void UpdateMfeMae()
+  {
+   int n = ArraySize(g_entries);
+   for(int i = 0; i < n; i++)
+     {
+      if(!PositionSelectByTicket(g_entries[i].ticket)) continue;
+
+      double profit = PositionGetDouble(POSITION_PROFIT);
+      g_entries[i].mfe = MathMax(g_entries[i].mfe, profit);
+      g_entries[i].mae = MathMin(g_entries[i].mae, profit);
+     }
   }
 
 //==================================================================

@@ -65,6 +65,10 @@ struct EntryTracker
    ulong    ticket;         // position ticket
    double   sweepPrice;     // sweep level (bar high/low that took idm)
    int      dir;            // 1=BUY, -1=SELL
+   double   entryPrice;     // POSITION_PRICE_OPEN at the time of AddEntry
+   datetime entryTime;      // POSITION_TIME at the time of AddEntry
+   double   mfe;            // Max Favorable Excursion — best POSITION_PROFIT seen ($)
+   double   mae;            // Max Adverse Excursion — worst POSITION_PROFIT seen ($)
   };
 EntryTracker  g_entries[];
 

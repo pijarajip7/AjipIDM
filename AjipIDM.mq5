@@ -103,6 +103,10 @@ void OnDeinit(const int reason)
 //==================================================================
 void OnTick()
   {
+   // MFE/MAE — update every tick (not gated by new-bar) so intra-bar
+   // excursions are captured, not just the closed-bar extreme.
+   UpdateMfeMae();
+
    // HTF context — own new-bar gate, runs every tick since HTF bars close
    // less often than LTF bars (must not be gated behind the LTF early-return
    // below, or an HTF closed-bar boundary could be silently skipped).

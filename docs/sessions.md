@@ -98,3 +98,10 @@
 - BUY: equilibrium = (sweepLow + tp) / 2, skip jika `close > equilibrium`. SELL: equilibrium = (tp + sweepHigh) / 2, skip jika `close < equilibrium`.
 - Ditempatkan di `CheckIdmTaken` (AjipIDM_Entry.mqh), sejajar dengan Min TP Points filter — dicek setelah TP tervalidasi, sebelum `OpenTrade`.
 - `InpUseEquilibriumFilter=false` (default) → zero behavior change dari sebelumnya.
+
+### Session 16 (2026-07-26): MFE/MAE tracking (CSV export + live panel)
+- `EntryTracker` (Globals.mqh) ditambah field: `entryPrice`, `entryTime`, `mfe`, `mae`. Diisi di `AddEntry` (entryPrice/entryTime dari `POSITION_PRICE_OPEN`/`POSITION_TIME` sesaat setelah `OpenTrade` sukses — actual fill, bukan `bar.close`).
+- `UpdateMfeMae()` (AjipIDM_Entry.mqh) dipanggil TIAP TICK di `OnTick` (tidak digate per-bar) — untuk tiap tracked entry, `mfe = max(mfe, POSITION_PROFIT)`, `mae = min(mae, POSITION_PROFIT)`. Pakai floating profit MT5 langsung (bukan hitung manual dari price), otomatis benar untuk lot/symbol currency apa pun.
+- `WriteTradeCsv()` (AjipIDM_Trade.mqh) dipanggil dari `CheckEntryInvalidation` pas posisi terdeteksi closed (SEBELUM `RemoveEntry`) — query exit info via `HistorySelectByPosition`, append row ke `MQL5/Files/AjipIDM_Trades_<symbol>_<magic>.csv` (header ditulis sekali kalau file belum ada).
+- Panel: 2 baris baru "Open MFE"/"Open MAE" — sum floating mfe/mae semua tracked open positions, refresh sama cadence-nya dengan baris lain (per closed bar), tapi nilai underlying-nya sendiri sudah live per-tick.
+- Body-break invalidation TIDAK memicu CSV write (posisi belum benar-benar closed) — hanya TP/SL/BE hit (posisi hilang dari broker) yang di-log.

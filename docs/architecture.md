@@ -38,9 +38,36 @@ HTF Trend: UP / DOWN / NONE / OFF (OFF jika InpUseHtfFilter=false)
 Today P/L: <realized, deals hari ini>
 Week P/L:  <realized, sejak Senin 00:00>
 Month P/L: <realized, sejak tanggal 1 00:00>
+Open MFE:  <sum floating best-case, semua posisi open>
+Open MAE:  <sum floating worst-case, semua posisi open>
 ```
 
 P/L dihitung dari realized deals (symbol + magic number sama), sama persis definisinya dengan `GetDailyPnL` yang dipakai daily-limit — BUKAN floating/unrealized PnL posisi terbuka. Object chart pakai prefix `g_panelPrefix` ("AjipIDMPanel_"), terpisah dari `g_objPrefix` ("AjipIDM_") supaya tidak ke-wipe oleh `ObjectsDeleteAll` di `DrawSwings()`.
+
+Open MFE/MAE beda dari baris P/L di atas: ini floating (bukan realized), disum dari `g_entries[].mfe`/`.mae` — lihat [MFE/MAE Tracking](#mfemae-tracking) di bawah.
+
+## MFE/MAE Tracking
+
+Setiap posisi open ditrack Max Favorable/Adverse Excursion-nya dalam $ (account currency), berbasis `PositionGetDouble(POSITION_PROFIT)` — bukan hitung manual dari price/point, supaya otomatis benar untuk lot size & symbol currency apa pun.
+
+```
+UpdateMfeMae() dipanggil TIAP TICK (bukan per-bar) — supaya excursion intra-bar
+kecatat, bukan cuma extreme di closed bar:
+  untuk tiap tracked entry:
+    profit = PositionGetDouble(POSITION_PROFIT)
+    mfe = max(mfe, profit)
+    mae = min(mae, profit)
+```
+
+Saat posisi terdeteksi closed (TP/SL/BE hit — dicek di `CheckEntryInvalidation`), `WriteTradeCsv()` dipanggil SEBELUM entry dihapus dari tracking:
+- Query exit info dari `HistorySelectByPosition(ticket)`: exit price/time, close reason (TP/SL/STOPOUT/OTHER dari `DEAL_REASON`), realized P/L.
+- Append 1 baris ke `MQL5/Files/AjipIDM_Trades_<symbol>_<magic>.csv` (dibuat otomatis kalau belum ada, header ditulis sekali).
+- Kolom: `Ticket,Dir,EntryTime,EntryPrice,ExitTime,ExitPrice,CloseReason,RealizedPnL,MFE,MAE`.
+
+Catatan:
+- Body-break invalidation (`InpInvalidationMode`) TIDAK menutup posisi — jadi tidak memicu CSV write. Row CSV hanya ditulis saat posisi BENAR-BENAR closed di broker (TP/SL/BE).
+- Di Strategy Tester, file CSV ada di folder sandbox agent tester (`Tester/Agent-xxx/MQL5/Files/`), bukan folder terminal utama — kalau run optimization paralel, tiap agent punya file sendiri (tidak digabung otomatis).
+- `entryPrice`/`entryTime` diambil dari `POSITION_PRICE_OPEN`/`POSITION_TIME` saat `AddEntry` dipanggil (persis setelah `OpenTrade` sukses), bukan dari `bar.close` — jadi merefleksikan actual fill price broker.
 
 ## Init
 
