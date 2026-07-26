@@ -1,0 +1,144 @@
+# AjipIDM — Konsep & Strategi
+
+AjipIDM berbeda dari AjipSMC dalam hal:
+
+| Aspek | AjipSMC | AjipIDM |
+|-------|---------|---------|
+| Structure levels | SL/SH + VH/VL (Weak) | SL/SH saja |
+| idm role | Trigger untuk Weak confirmation | Trigger reversal trend |
+| idm taken effect | Confirm Weak, cycle berhenti | Trend SELALU berubah |
+| Entry | OF/OB/FVG analysis | idm taken + no body break → fade |
+| Entry direction | Trend-following (menuju Weak) | Counter-trend (sweep/fakeout) |
+| Target | Weak VL/VH | Swing terakhir di struktur baru |
+| RR | 1:2 minimum | Configurable via InpRR (1:1, 1:2, 1:0.5, dll) |
+| SL | Hybrid structural + ATR | Derived dari TP distance / RR, atau no SL (RR=0) |
+| Platform | Python + TradingView | MT5 EA (MQL5) |
+
+## Naming Convention
+
+```
+Uptrend:   SLU0 → SHU1 → SLU1 → SHU2 → SLU2 → ...
+           SLU = Simple Low Up,  SHU = Simple High Up
+           SLU must be HL, SHU must be HH
+
+Downtrend: SHD0 → SLD1 → SHD1 → SLD2 → SHD2 → ...
+           SHD = Simple High Down,  SLD = Simple Low Down
+           SHD must be LH, SLD must be LL
+```
+
+## idm Definition
+
+idm = swing TERAKHIR dari tipe inducement yang sudah CONFIRMED (memiliki swing lawan setelahnya):
+- Uptrend: idm = SL terakhir yang punya SH setelahnya (confirmed pullback — price sudah buat HH sejak SL itu)
+- Downtrend: idm = SH terakhir yang punya SL setelahnya (confirmed pullback — price sudah buat LL sejak SH itu)
+
+Implementasi (`UpdateIdm`): walk backward dari index n-2 (EXCLUDE swing terakhir / dangling).
+Swing terakhir = kandidat unconfirmed. Contoh uptrend [SL100, SH110, SL105, SH120, SL108]:
+SL108 belum punya SH setelahnya → BUKAN idm. idm = SL105 (punya SH120 setelahnya).
+Saat price buat HH di atas SH120, SL108 otomatis jadi confirmed → jadi idm baru.
+
+UpdateIdm dipanggil di: InitStructure, UpdateStructure (live), RebuildStructure (replay).
+Sebelumnya hanya di Init/Rebuild → g_idmPrice stale setelah init/reversal.
+
+idm TIDAK bergeser meski wick lebih dalam. Yang penting hanya close vs idm level.
+
+## idm Taken → Trend Change (ALWAYS)
+
+Saat idm taken (candle low/high menembus idm level):
+1. Trend SELALU berubah — regardless of body break
+2. Build struktur baru dari titik ekstrem sebelumnya
+3. Cek close candle untuk entry decision
+
+## Entry Rules
+
+**BUY** (uptrend → idm taken dari bawah):
+```
+Condition: candle low < SLU_last (idm) AND close > SLU_last
+→ No body break = sweep/fakeout
+→ BUY @ close price
+TP = SHD terakhir di downtrend structure baru
+SL = entry - (tpDistance / InpRR)    (RR=0 → no SL)
+```
+
+**SELL** (downtrend → idm taken dari atas):
+```
+Condition: candle high > SHD_last (idm) AND close < SHD_last
+→ No body break = sweep/fakeout
+→ SELL @ close price
+TP = SLU terakhir di uptrend structure baru
+SL = entry + (tpDistance / InpRR)    (RR=0 → no SL)
+```
+
+**Body break = no entry:**
+- Uptrend idm: close < SLU_last → downtrend confirmed, lanjut track
+- Downtrend idm: close > SHD_last → uptrend confirmed, lanjut track
+
+## Entry Invalidation (body break setelah entry)
+
+Entry premise: idm sweep (wick takes idm) tapi close reclaim.
+
+**Sweep level** = high/low bar yang ambil idm (bukan idm price):
+- BUY: sweep level = LOW bar yang sweep
+- SELL: sweep level = HIGH bar yang sweep
+
+**Sweep update:** jika bar berikutnya sweep lebih dalam, update sweep level.
+
+**Body break = invalidasi:** close menembus sweep level TERBARU → premise gagal. Aksi ditentukan oleh `InpInvalidationMode`:
+
+```
+INVALIDATION_DO_NOTHING (default): TP/SL dibiarkan apa adanya, tidak ada modify.
+INVALIDATION_FIXED_TP: TP digeser ke entry ± InpInvalidationTpPoints
+  BUY:  newTP = entryPrice + (InpInvalidationTpPoints * point)
+  SELL: newTP = entryPrice - (InpInvalidationTpPoints * point)
+  InpInvalidationTpPoints = 0 → setara TP to break-even (newTP = entryPrice)
+```
+
+SL tetap tidak berubah pada kedua mode. Posisi TIDAK di-close — biarkan broker manage.
+
+**Multi-position:** tiap entry ditrack per-ticket (EntryTracker array: ticket, sweepPrice, dir).
+Auto-cleanup: posisi yang sudah TP/SL hit otomatis di-remove dari tracking.
+
+**Body break dievaluasi SEBELUM sweep update** (fix bug: sweep update duluan menyembunyikan body break).
+Invalidasi dievaluasi pada CLOSED bar, BEFORE CheckIdmTaken.
+
+## HTF Trend Filter (opsional)
+
+Filter entry berdasarkan trend di timeframe lebih tinggi (`InpHtfTimeframe`), pakai algoritma SL/SH + idm YANG SAMA seperti LTF (bukan MA/indicator lain) — supaya definisi trend konsisten di seluruh EA.
+
+```
+InpUseHtfFilter=true:
+  BUY  entry hanya jalan jika g_htfTrend == TREND_UP
+  SELL entry hanya jalan jika g_htfTrend == TREND_DOWN
+  g_htfTrend == TREND_NONE (belum ke-init) → BUY dan SELL dua-duanya diblok
+```
+
+HTF context adalah engine terpisah & mandiri (`AjipIDM_HtfContext.mqh`, globals `g_htf*`):
+- Struktur/idm-nya sendiri, di-update tiap HTF bar closed (gate independen dari LTF new-bar gate — HTF bar closed lebih jarang dari LTF, jadi HTF check jalan tiap tick, TIDAK boleh diletakkan setelah LTF early-return).
+- TIDAK PERNAH entry, TIDAK PERNAH invalidation, TIDAK PERNAH daily-limit check — murni context/filter.
+- Reuse `InpCandlesInit` untuk lookback init (tidak ada input terpisah).
+- Logic (pullback, simple structure, idm, reversal) adalah port 1:1 dari engine LTF — lihat file untuk detail.
+
+**HTF structure/idm digambar juga di chart** (`DrawHtfSwings()`, aktif jika `InpDrawLines && InpUseHtfFilter`):
+- Object prefix `g_htfObjPrefix` ("AjipIDMHtf_") — terpisah dari `g_objPrefix` LTF dan `g_panelPrefix`, supaya tidak saling ke-wipe oleh `ObjectsDeleteAll`.
+- Visual dibedakan dari garis LTF: swing line dotted (`STYLE_DOT`, width 2, ungu untuk SH / emas untuk SL) vs LTF solid (dodger blue/orange red). idm line HTF kuning dash-dot vs idm LTF hitam dash.
+- Redraw dipanggil tiap HTF bar closed diproses, plus di `InitHtfStructure` dan tiap kali `HtfReverseToDowntrend`/`HtfReverseToUptrend` (mirror pola LTF).
+
+## Contoh Full Cycle (Chained Example)
+
+```
+1. UP: SLU0(100) - SHU1(110) - SLU1(105) - SHU2(115) - SLU2(108, idm) - SHU3(120)
+2. Price dari SHU3 turun, candle low = 107 (< SLU2=108) → IDM TAKEN
+   Trend → DOWN. Build dari SHU3(120) = SHD0
+   Retroactive structure: SHD0(120) - SLD1(112) - SHD1(118) - SLD2(107)
+3. Candle close = 109 (> SLU2=108) → BUY @ 109
+   TP = SHD1 = 118 (last SHD before SLD2)
+   tpDistance = 118 - 109 = 9
+   SL = 109 - (9 / InpRR)    (RR=1 → SL=100, RR=2 → SL=104.5)
+
+4. Price naik ke 118 (= TP hit). Position closed.
+5. At 118, candle high > SHD1 → IDM TAKEN untuk downtrend
+   Trend → UP. Build dari SLD2(107) = SLU0
+   Candle close < SHD1 → SELL @ close
+   TP = SLU terakhir di uptrend structure baru
+   SL = entry + (tpDistance / InpRR)
+```
