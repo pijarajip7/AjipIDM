@@ -123,6 +123,22 @@ HTF context adalah engine terpisah & mandiri (`AjipIDM_HtfContext.mqh`, globals 
 - Visual dibedakan dari garis LTF: swing line dotted (`STYLE_DOT`, width 2, ungu untuk SH / emas untuk SL) vs LTF solid (dodger blue/orange red). idm line HTF kuning dash-dot vs idm LTF hitam dash.
 - Redraw dipanggil tiap HTF bar closed diproses, plus di `InitHtfStructure` dan tiap kali `HtfReverseToDowntrend`/`HtfReverseToUptrend` (mirror pola LTF).
 
+## Equilibrium Filter (opsional)
+
+Filter premium/discount ala ICT: skip entry kalau close candle sweep sudah lewat titik tengah (equilibrium) dari range sweep-level → TP. Diaktifkan via `InpUseEquilibriumFilter` (default false).
+
+```
+BUY:  range = [sweepLow (bar.low candle idm-taken), tp]
+      equilibrium = (sweepLow + tp) / 2
+      close > equilibrium → SKIP (sudah premium, room ke TP relatif terlalu sedikit)
+
+SELL: range = [tp, sweepHigh (bar.high candle idm-taken)]
+      equilibrium = (tp + sweepHigh) / 2
+      close < equilibrium → SKIP (sudah discount, room ke TP relatif terlalu sedikit)
+```
+
+Dicek di `CheckIdmTaken` (AjipIDM_Entry.mqh), sejajar dengan Min TP Points filter — setelah TP tervalidasi (`tp > 0.0`), sebelum `OpenTrade`. Filter ini independen dari HTF filter dan daily limit (semua filter dicek berurutan, entry hanya jalan kalau semua lolos).
+
 ## Contoh Full Cycle (Chained Example)
 
 ```

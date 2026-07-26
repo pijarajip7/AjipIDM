@@ -298,7 +298,7 @@ void DrawSwings()
 
       ObjectCreate(0, name, OBJ_TREND, 0, t1, p1, t2, p2);
       ObjectSetInteger(0, name, OBJPROP_COLOR,
-                       g_swings[i].isHigh ? clrDodgerBlue : clrOrangeRed);
+                       g_trend == TREND_UP ? clrDodgerBlue : clrOrangeRed);
       ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
       ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, false);
      }

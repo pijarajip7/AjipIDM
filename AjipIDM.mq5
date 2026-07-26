@@ -22,16 +22,17 @@ enum ENUM_INVALIDATION_MODE
    INVALIDATION_FIXED_TP    // Move TP to entry + fixed TP points
   };
 
-input ENUM_TIMEFRAMES InpTimeframe   = PERIOD_M15;  // Working timeframe
-input double          InpTargetAmount = 500.0;      // Target profit per trade (USD)
-input double          InpRR          = 0.0;         // Risk:Reward (1=1:1, 2=1:2, 0=NO SL)
+input ENUM_TIMEFRAMES InpTimeframe   = PERIOD_M1;  // Working timeframe
+input double          InpTargetAmount = 1000.0;      // Target profit per trade (USD)
+input double          InpRR          = 0.05;         // Risk:Reward (1=1:1, 2=1:2, 0=NO SL)
 input int             InpMinTpPoints = 300;           // Min TP distance in points (skip if below)
-input double          InpDailyMaxProfit = 0.0;      // Daily max profit (0=disabled, stop new trades when reached)
-input double          InpDailyMaxLoss   = 0.0;      // Daily max loss (0=disabled, stop new trades when reached)
-input ENUM_INVALIDATION_MODE InpInvalidationMode = INVALIDATION_DO_NOTHING; // Invalidation TP action on body break
-input int             InpInvalidationTpPoints = 300; // Fixed TP points (used when mode=FIXED_TP)
+input double          InpDailyMaxProfit = 10000.0;      // Daily max profit (0=disabled, stop new trades when reached)
+input double          InpDailyMaxLoss   = 10000.0;      // Daily max loss (0=disabled, stop new trades when reached)
+input ENUM_INVALIDATION_MODE InpInvalidationMode = INVALIDATION_FIXED_TP; // Invalidation TP action on body break
+input int             InpInvalidationTpPoints = 50; // Fixed TP points (used when mode=FIXED_TP)
 input bool             InpUseHtfFilter = false;      // Enable HTF trend filter on entries
-input ENUM_TIMEFRAMES  InpHtfTimeframe = PERIOD_H1;  // Higher timeframe for trend filter
+input ENUM_TIMEFRAMES  InpHtfTimeframe = PERIOD_M5;  // Higher timeframe for trend filter
+input bool             InpUseEquilibriumFilter = false; // Skip entry if close beyond equilibrium (sweep→TP midpoint)
 input int             InpCandlesInit = 50;          // Lookback candles for initial trend
 input ulong           InpDeviation   = 10;          // Slippage (points)
 input long            InpMagicNumber = 99001;       // Magic number

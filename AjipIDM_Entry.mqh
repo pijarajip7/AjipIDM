@@ -190,10 +190,20 @@ void CheckIdmTaken(MqlRates &bar)
 
                // Min TP points filter
                double tpPoints = tpDistance / g_point;
+               // Equilibrium filter: midpoint of sweep low → TP. BUY should be
+               // in discount (close <= midpoint); close above it = too little
+               // room left to TP relative to the sweep → skip.
+               double equilibrium = (bar.low + tp) / 2.0;
+
                if(InpMinTpPoints > 0 && tpPoints < InpMinTpPoints)
                  {
                   PrintFormat("AjipIDM: BUY skip — TP points %.0f < %d (tp=%.5f, close=%.5f)",
                               tpPoints, InpMinTpPoints, tp, bar.close);
+                 }
+               else if(InpUseEquilibriumFilter && bar.close > equilibrium)
+                 {
+                  PrintFormat("AjipIDM: BUY skip — equilibrium filter (close=%.5f > eq=%.5f, sweepLow=%.5f, tp=%.5f)",
+                              bar.close, equilibrium, bar.low, tp);
                  }
                else
                  {
@@ -242,10 +252,20 @@ void CheckIdmTaken(MqlRates &bar)
 
                // Min TP points filter
                double tpPoints = tpDistance / g_point;
+               // Equilibrium filter: midpoint of TP → sweep high. SELL should
+               // be in premium (close >= midpoint); close below it = too
+               // little room left to TP relative to the sweep → skip.
+               double equilibrium = (tp + bar.high) / 2.0;
+
                if(InpMinTpPoints > 0 && tpPoints < InpMinTpPoints)
                  {
                   PrintFormat("AjipIDM: SELL skip — TP points %.0f < %d (tp=%.5f, close=%.5f)",
                               tpPoints, InpMinTpPoints, tp, bar.close);
+                 }
+               else if(InpUseEquilibriumFilter && bar.close < equilibrium)
+                 {
+                  PrintFormat("AjipIDM: SELL skip — equilibrium filter (close=%.5f < eq=%.5f, sweepHigh=%.5f, tp=%.5f)",
+                              bar.close, equilibrium, bar.high, tp);
                  }
                else
                  {

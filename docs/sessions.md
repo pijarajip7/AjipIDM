@@ -92,3 +92,9 @@
 ### Session 14 (2026-07-26): Split README jadi beberapa doc file
 - README.md yang tadinya 1 file monolitik (~487 baris) dipecah jadi `docs/concept.md`, `docs/architecture.md`, `docs/swing-detection.md`, `docs/bugfixes.md`, `docs/sessions.md` (file ini).
 - README.md sekarang jadi entry point ringkas: tagline, tabel link dokumentasi, Known Limitations & TODO, Files table.
+
+### Session 15 (2026-07-26): Equilibrium (premium/discount) filter
+- Fitur baru: `InpUseEquilibriumFilter` (default false) — skip entry kalau close candle idm-taken sudah lewat midpoint (equilibrium) dari range sweep-level → TP.
+- BUY: equilibrium = (sweepLow + tp) / 2, skip jika `close > equilibrium`. SELL: equilibrium = (tp + sweepHigh) / 2, skip jika `close < equilibrium`.
+- Ditempatkan di `CheckIdmTaken` (AjipIDM_Entry.mqh), sejajar dengan Min TP Points filter — dicek setelah TP tervalidasi, sebelum `OpenTrade`.
+- `InpUseEquilibriumFilter=false` (default) → zero behavior change dari sebelumnya.

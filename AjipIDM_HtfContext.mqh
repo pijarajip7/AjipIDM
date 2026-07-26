@@ -706,7 +706,7 @@ void DrawHtfSwings()
 
       ObjectCreate(0, name, OBJ_TREND, 0, t1, p1, t2, p2);
       ObjectSetInteger(0, name, OBJPROP_COLOR,
-                       g_htfSwings[i].isHigh ? clrMediumPurple : clrGoldenrod);
+                       g_htfTrend == TREND_UP ? clrDodgerBlue : clrOrangeRed);
       ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
       ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_DOT);
       ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, false);
@@ -718,9 +718,9 @@ void DrawHtfSwings()
      {
       string idmName = g_htfObjPrefix + "IDM";
       ObjectCreate(0, idmName, OBJ_HLINE, 0, 0, g_htfIdmPrice);
-      ObjectSetInteger(0, idmName, OBJPROP_COLOR, clrYellow);
+      ObjectSetInteger(0, idmName, OBJPROP_COLOR, clrBlack);
       ObjectSetInteger(0, idmName, OBJPROP_WIDTH, 1);
-      ObjectSetInteger(0, idmName, OBJPROP_STYLE, STYLE_DASHDOT);
+      ObjectSetInteger(0, idmName, OBJPROP_STYLE, STYLE_SOLID);
       ObjectSetInteger(0, idmName, OBJPROP_SELECTABLE, false);
      }
 

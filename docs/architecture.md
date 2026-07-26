@@ -20,6 +20,7 @@ InpInvalidationMode     = INVALIDATION_DO_NOTHING — Aksi TP saat body-break in
 InpInvalidationTpPoints = 300     — Fixed TP points dari entry (dipakai jika mode=FIXED_TP; 0=break-even)
 InpUseHtfFilter = false          — Enable HTF trend filter on entries
 InpHtfTimeframe = PERIOD_H1      — Higher timeframe untuk trend filter
+InpUseEquilibriumFilter = false  — Skip entry jika close melewati equilibrium (midpoint sweep→TP)
 InpShowPanel    = true           — Show info panel (trend + P/L) on chart
 InpPanelCorner  = CORNER_LEFT_UPPER — Panel corner
 InpPanelX       = 10             — Panel X offset (px)
@@ -65,7 +66,7 @@ P/L dihitung dari realized deals (symbol + magic number sama), sama persis defin
    - Sweep update? (deeper sweep, jika tidak body break) → update sweep level
    - Auto-cleanup: posisi yang sudah closed → remove tracking
 4. CheckIdmTaken: cek idm taken pada closed bar
-   - Filter gate sebelum entry: HTF trend filter (jika enabled) → daily limit → TP calc → OpenTrade
+   - Filter gate sebelum entry: HTF trend filter (jika enabled) → daily limit → TP calc → Min TP points → equilibrium filter (jika enabled) → OpenTrade
 5. If entry: place MT5 order, AddEntry to tracking
 6. Multi-position — tidak ada batasan jumlah posisi
 ```
