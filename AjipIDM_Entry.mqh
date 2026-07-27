@@ -133,6 +133,98 @@ void RemoveEntry(int idx)
   }
 
 //==================================================================
+// CHECK AGGRESSIVE IDM TOUCH (per-tick, bar NOT closed yet)
+// InpUseAggressiveEntry mode: the instant price touches idm intrabar,
+// reverse the structure RIGHT NOW using the last CLOSED bar as boundary
+// (NOT the still-forming touch bar) — origin + retroactive structure are
+// built purely from final bar data, so there's no repaint risk. This makes
+// the real structural TP available immediately, so SL/TP are set on the
+// entry order right away, same formula as a confirmation entry — no naked
+// window at all.
+//
+// The still-forming touch bar itself is untouched here; once it actually
+// closes, it flows through the normal UpdateStructure()/CheckEntryInvalidation()
+// path in OnTick like any other bar — extending this same structure further
+// and (via sweepPrice = old idm) naturally resolving sweep-confirmed vs
+// body-break through the existing invalidation logic. No special-casing
+// needed for that — see CheckEntryInvalidation.
+//
+// Guarded by g_aggressiveFiredBarTime so only ONE aggressive entry fires
+// per forming bar, even if price oscillates around idm multiple times.
+//==================================================================
+void CheckAggressiveIdmTouch()
+  {
+   if(!InpUseAggressiveEntry) return;
+   if(g_idmTaken) return;
+   if(g_idmPrice <= 0.0) return;
+   if(g_initMode) return;
+
+   // Touch uses Bid — matches the Bid-based OHLC series g_idmPrice is derived from.
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   bool touchBuy  = (g_trend == TREND_UP   && bid < g_idmPrice);
+   bool touchSell = (g_trend == TREND_DOWN && bid > g_idmPrice);
+   if(!touchBuy && !touchSell) return;
+
+   bool isBuy = touchBuy;
+
+   MqlRates rates[];
+   ArraySetAsSeries(rates, true);
+   if(CopyRates(_Symbol, InpTimeframe, 0, 2, rates) < 2) return;
+
+   if(rates[0].time == g_aggressiveFiredBarTime) return; // already fired for this forming bar
+
+   // Same gating as confirmation-mode entry: HTF filter + daily limit.
+   if(InpUseHtfFilter && g_htfTrend != (isBuy ? TREND_UP : TREND_DOWN)) return;
+   if(DailyLimitReached()) return;
+
+   MqlTick tick;
+   if(!SymbolInfoTick(_Symbol, tick)) return;
+
+   double oldIdm = g_idmPrice; // level being swept — becomes this entry's sweepPrice
+   g_aggressiveFiredBarTime = rates[0].time;
+
+   PrintFormat("AjipIDM: AGGRESSIVE %s idm touch @ %.5f — reversing early using last closed bar as boundary.",
+               isBuy ? "BUY" : "SELL", oldIdm);
+
+   // rates[1] = last CLOSED bar (NOT the forming touch bar) — keeps origin
+   // scan + retroactive rebuild on final data only.
+   if(isBuy)
+      ReverseToDowntrend(rates[1]);
+   else
+      ReverseToUptrend(rates[1]);
+
+   double tp            = isBuy ? GetLastSHDPrice() : GetLastSLUPrice();
+   double entryEstimate = isBuy ? tick.ask : tick.bid;
+
+   if(tp <= 0.0 || (isBuy ? tp <= entryEstimate : tp >= entryEstimate))
+     {
+      PrintFormat("AjipIDM: Aggressive %s skip — TP invalid after early reverse (tp=%.5f, entry~%.5f)",
+                  isBuy ? "BUY" : "SELL", tp, entryEstimate);
+      return;
+     }
+
+   double tpDistance = MathAbs(tp - entryEstimate);
+   double tpPoints    = tpDistance / g_point;
+   if(InpMinTpPoints > 0 && tpPoints < InpMinTpPoints)
+     {
+      PrintFormat("AjipIDM: Aggressive %s skip — TP points %.0f < %d (tp=%.5f, entry~%.5f)",
+                  isBuy ? "BUY" : "SELL", tpPoints, InpMinTpPoints, tp, entryEstimate);
+      return;
+     }
+
+   double sl = 0.0;
+   if(InpRR > 0.0)
+     {
+      double slDistance = tpDistance / InpRR;
+      sl = isBuy ? entryEstimate - slDistance : entryEstimate + slDistance;
+     }
+
+   ulong ticket = OpenTrade(isBuy, entryEstimate, sl, tp);
+   if(ticket > 0)
+      AddEntry(ticket, oldIdm, isBuy ? 1 : -1); // sweepPrice=oldIdm; refined to bar low/high by CheckEntryInvalidation once this bar closes
+  }
+
+//==================================================================
 // CHECK IDM TAKEN
 // Uptrend: candle low < idm(SLU_last) → idm taken
 // Downtrend: candle high > idm(SHD_last) → idm taken

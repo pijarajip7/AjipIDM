@@ -59,6 +59,12 @@ BaseCandle     g_outsideBar;       // the outside bar (both extremes)
 double         g_idmPrice = 0.0;   // current idm level
 bool           g_idmTaken = false; // idm has been taken this cycle
 
+// Aggressive entry — bar time of the currently-forming bar for which an
+// aggressive touch entry already fired. Guards against re-firing multiple
+// times within the same forming bar; naturally "resets" once a new bar
+// starts forming (its rates[0].time differs), no manual reset needed.
+datetime       g_aggressiveFiredBarTime = 0;
+
 // Entry invalidation tracking (multi-position, per-ticket)
 struct EntryTracker
   {

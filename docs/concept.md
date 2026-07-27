@@ -123,6 +123,47 @@ HTF context adalah engine terpisah & mandiri (`AjipIDM_HtfContext.mqh`, globals 
 - Visual dibedakan dari garis LTF: swing line dotted (`STYLE_DOT`, width 2, ungu untuk SH / emas untuk SL) vs LTF solid (dodger blue/orange red). idm line HTF kuning dash-dot vs idm LTF hitam dash.
 - Redraw dipanggil tiap HTF bar closed diproses, plus di `InitHtfStructure` dan tiap kali `HtfReverseToDowntrend`/`HtfReverseToUptrend` (mirror pola LTF).
 
+## Aggressive Entry Mode (opsional)
+
+Default (**confirmation entry**): entry hanya jalan setelah bar close, memakai `bar.close` untuk memutuskan sweep (no body break) vs body break. Ini filter inti strategi — entry cuma terjadi kalau close sudah reclaim idm.
+
+**Aggressive entry** (`InpUseAggressiveEntry=true`): entry market langsung begitu harga MENYENTUH idm intrabar (per-tick, bar belum close), tanpa nunggu konfirmasi reclaim. Begitu tersentuh, structure LANGSUNG di-reverse (bukan nunggu close) dengan trik: origin & retroactive rebuild pakai bar CLOSED terakhir sebagai boundary (bukan bar yang lagi forming) — jadi datanya tetap 100% final, tidak ada repaint risk. TP structural pun langsung tersedia → SL/TP dipasang di order SEJAK ENTRY, tidak ada window naked sama sekali.
+
+```
+Per-tick, saat idm tersentuh (CheckAggressiveIdmTouch):
+  TREND_UP   & Bid < idm → arah BUY (fade)
+  TREND_DOWN & Bid > idm → arah SELL (fade)
+
+  1. Guard: 1x entry per bar forming (g_aggressiveFiredBarTime), HTF filter +
+     daily limit dicek di titik ini (kalau gagal, tidak entry; confirmation-mode
+     di bar close tetap jadi fallback normal)
+  2. oldIdm = g_idmPrice (level yang disweep — disimpan sebelum trend berubah)
+  3. ReverseToDowntrend/Uptrend(rates[1])  ← rates[1] = bar CLOSED terakhir,
+     BUKAN bar yang sedang forming. Origin + retroactive structure 100% dari
+     data final, g_trend & g_idmPrice langsung pindah ke trend baru.
+  4. TP = GetLastSHDPrice/GetLastSLUPrice (structural, sama formula seperti
+     confirmation entry) — cek valid + InpMinTpPoints (equilibrium filter TIDAK
+     dicek di sini, karena "close" belum ada — entry price = bar.low/high proxy
+     itu sendiri, jadi filter itu tidak bermakna di titik ini)
+  5. SL = entry ∓ (tpDistance / InpRR)  (RR=0 → no SL, sama seperti confirmation)
+  6. OpenTrade(isBuy, entry, sl, tp) — SL/TP REAL langsung terpasang di order
+  7. AddEntry(ticket, sweepPrice=oldIdm, dir) — masuk tracking normal
+
+Begitu bar yang tadi "disentuh" itu BENERAN close (flow OnTick standar, tidak ada
+kode khusus tambahan):
+  - UpdateStructure() → bar itu diproses sebagai bar pertama trend baru (structure
+    sudah di-reverse duluan di step 3), pakai fungsi yang sama seperti bar manapun.
+  - CheckEntryInvalidation() → entry yang barusan dibuka dicek otomatis:
+      close TIDAK reclaim oldIdm → body break → InpInvalidationMode diterapkan
+        (di atas SL/TP yang SUDAH ada, bukan set awal) → entry di-remove dari tracking
+      close reclaim oldIdm → bukan body break → sweepPrice di-refine ke bar.low/high
+        (Phase 2, existing logic) → lanjut tracking normal seperti entry biasa
+  - CheckIdmTaken() → cek idm BARU (trend baru), hampir selalu belum taken di bar
+    yang sama → no-op, tidak ada reverse dobel.
+```
+
+**Beda vs confirmation entry:** aggressive entry mengorbankan filter "no body break" (entry di setiap sentuhan idm, bukan cuma yang confirmed reclaim) demi harga entry lebih awal + reverse structure lebih cepat. Trade-off: lebih banyak entry yang berakhir body-break (invalidasi di bar yang sama), dan TP/lot bisa sedikit beda dari yang akan dihitung confirmation-mode di bar yang sama — karena retroactive rebuild-nya tidak menyertakan bar yang lagi forming itu sendiri (biasanya nggak masalah, karena bar itu dicirikan oleh ekstrem tipe berlawanan dari yang menentukan TP — kecuali kasus outside-bar yang jarang terjadi). Equilibrium filter (`InpUseEquilibriumFilter`) tidak diterapkan ke aggressive entry (secara struktural belum bisa dievaluasi di titik touch).
+
 ## Equilibrium Filter (opsional)
 
 Filter premium/discount ala ICT: skip entry kalau close candle sweep sudah lewat titik tengah (equilibrium) dari range sweep-level → TP. Diaktifkan via `InpUseEquilibriumFilter` (default false).

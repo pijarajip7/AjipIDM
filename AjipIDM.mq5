@@ -33,6 +33,7 @@ input int             InpInvalidationTpPoints = 50; // Fixed TP points (used whe
 input bool             InpUseHtfFilter = false;      // Enable HTF trend filter on entries
 input ENUM_TIMEFRAMES  InpHtfTimeframe = PERIOD_M5;  // Higher timeframe for trend filter
 input bool             InpUseEquilibriumFilter = false; // Skip entry if close beyond equilibrium (sweep→TP midpoint)
+input bool             InpUseAggressiveEntry = false; // Enter at idm level intrabar (before bar close); reverses structure early + sets real SL/TP immediately
 input int             InpCandlesInit = 50;          // Lookback candles for initial trend
 input ulong           InpDeviation   = 10;          // Slippage (points)
 input long            InpMagicNumber = 99001;       // Magic number
@@ -124,6 +125,11 @@ void OnTick()
             HtfCheckIdmTaken(htfRates[1]);
         }
      }
+
+   // Aggressive entry — own per-tick check, runs every tick (not gated behind
+   // the new-bar early-return below) so the touch fires the instant price
+   // reaches idm, not only once the bar closes.
+   CheckAggressiveIdmTouch();
 
    MqlRates rates[];
    ArraySetAsSeries(rates, true);
