@@ -16,11 +16,10 @@ InpRR           = 1.0            — Risk:Reward (1=1:1, 2=1:2, 0.5=1:0.5, 0=NO 
 InpMinTpPoints  = 0              — Min TP distance in points (0=no filter)
 InpDailyMaxProfit = 0.0          — Daily max profit in account currency (0=disabled)
 InpDailyMaxLoss   = 0.0          — Daily max loss in account currency (0=disabled)
-InpInvalidationMode     = INVALIDATION_DO_NOTHING — Aksi TP saat body-break invalidasi (DO_NOTHING / FIXED_TP)
-InpInvalidationTpPoints = 300     — Fixed TP points dari entry (dipakai jika mode=FIXED_TP; 0=break-even)
-InpUseHtfFilter = false          — Enable HTF trend filter on entries
-InpHtfTimeframe = PERIOD_H1      — Higher timeframe untuk trend filter
-InpUseEquilibriumFilter = false  — Skip entry jika close melewati equilibrium (midpoint sweep→TP)
+InpInvalidationMode     = INVALIDATION_DO_NOTHING — Aksi TP saat HTF body-break invalidasi (DO_NOTHING / FIXED_TP, portfolio-level, avg entry)
+InpInvalidationTpPoints = 300     — Fixed TP points dari avg entry (dipakai jika mode=FIXED_TP; 0=break-even)
+InpHtfTimeframe = PERIOD_H1      — Higher timeframe — SELALU aktif, sumber TP/equilibrium/invalidation (lihat concept.md)
+InpUseAggressiveEntry = false    — Enter di idm level intrabar (sebelum bar close), reverse LTF lebih awal + SL/TP HTF langsung terpasang
 InpShowPanel    = true           — Show info panel (trend + P/L) on chart
 InpPanelCorner  = CORNER_LEFT_UPPER — Panel corner
 InpPanelX       = 10             — Panel X offset (px)
@@ -34,7 +33,7 @@ Dashboard on-chart, refresh SEKALI PER CLOSED LTF BAR (bukan timer — supaya be
 ```
 AjipIDM
 Trend:     UP / DOWN / NONE     (warna: hijau/merah/abu-abu)
-HTF Trend: UP / DOWN / NONE / OFF (OFF jika InpUseHtfFilter=false)
+HTF Trend: UP / DOWN / NONE     (HTF context selalu aktif — bukan lagi toggle)
 Today P/L: <realized, deals hari ini>
 Week P/L:  <realized, sejak Senin 00:00>
 Month P/L: <realized, sejak tanggal 1 00:00>
@@ -59,7 +58,7 @@ kecatat, bukan cuma extreme di closed bar:
     mae = min(mae, profit)
 ```
 
-Saat posisi terdeteksi closed (TP/SL/BE hit — dicek di `CheckEntryInvalidation`), `WriteTradeCsv()` dipanggil SEBELUM entry dihapus dari tracking:
+Saat posisi terdeteksi closed (TP/SL/BE hit — dicek di `CheckEntryCleanup`), `WriteTradeCsv()` dipanggil SEBELUM entry dihapus dari tracking:
 - Query exit info dari `HistorySelectByPosition(ticket)`: exit price/time, close reason (TP/SL/STOPOUT/OTHER dari `DEAL_REASON`), realized P/L.
 - Append 1 baris ke `MQL5/Files/AjipIDM_Trades_<symbol>_<magic>.csv` (dibuat otomatis kalau belum ada, header ditulis sekali).
 - Kolom: `Ticket,Dir,EntryTime,EntryPrice,ExitTime,ExitPrice,CloseReason,RealizedPnL,MFE,MAE`.
@@ -84,16 +83,23 @@ Catatan:
 ## OnTick
 
 ```
-0. (jika InpUseHtfFilter) Detect new closed HTF bar (via g_htfLastBarTime, gate TERPISAH dari LTF,
-   jalan tiap tick SEBELUM early-return LTF): UpdateHtfStructure + HtfCheckIdmTaken (structure-only, no entry)
+0. HTF context (SELALU aktif, gate TERPISAH dari LTF via g_htfLastBarTime,
+   jalan tiap tick SEBELUM early-return LTF): detect new closed HTF bar →
+   UpdateHtfStructure → HtfCheckIdmTaken (idm taken? simpan sweep watch
+   g_htfSweepPrice/Dir, lalu reverse) → CheckHtfInvalidation (body break di
+   watch yang aktif? apply InpInvalidationMode portfolio-level pakai avg
+   entry / deepen watch kalau belum break)
+0.5 (jika InpUseAggressiveEntry) CheckAggressiveIdmTouch — per-tick, sebelum
+   early-return LTF: idm LTF tersentuh intrabar → reverse LTF early (pakai
+   last closed bar sbg boundary) → ComputeHtfEntryLevels → OpenTrade langsung
 1. Detect new closed LTF bar (via g_lastBarTime)
 2. UpdateStructure: pullback detection + simple structure build
-3. CheckEntryInvalidation: untuk semua tracked entries:
-   - Body break? (close menembus sweep level) → apply InpInvalidationMode (do nothing / TP fixed points), remove tracking
-   - Sweep update? (deeper sweep, jika tidak body break) → update sweep level
-   - Auto-cleanup: posisi yang sudah closed → remove tracking
-4. CheckIdmTaken: cek idm taken pada closed bar
-   - Filter gate sebelum entry: HTF trend filter (jika enabled) → daily limit → TP calc → Min TP points → equilibrium filter (jika enabled) → OpenTrade
+3. CheckEntryCleanup: untuk semua tracked entries — posisi yang sudah closed
+   (TP/SL hit) → log CSV → remove dari tracking. (Invalidation tidak lagi di
+   sini — lihat step 0, HTF-driven.)
+4. CheckIdmTaken: cek idm taken LTF pada closed bar (entry decision, tidak berubah)
+   - Kalau lolos (no body break) → daily limit → ComputeHtfEntryLevels (TP HTF +
+     equilibrium HTF + min TP points + SL dari RR) → OpenTrade
 5. If entry: place MT5 order, AddEntry to tracking
 6. Multi-position — tidak ada batasan jumlah posisi
 ```
@@ -107,6 +113,9 @@ Catatan:
   lot = InpTargetAmount / gainPerLot
   ```
 - Multi-position — tidak ada batasan jumlah posisi terbuka
-- Entry invalidation: body-break sweep → InpInvalidationMode (DO_NOTHING atau TP fixed points; tidak close posisi)
+- Entry invalidation: HTF-driven, portfolio-level (bukan per-ticket) — lihat
+  concept.md § HTF-Referenced Entry Engine. InpInvalidationMode (DO_NOTHING
+  atau TP fixed points dari avg entry semua posisi yang arahnya cocok; tidak
+  close posisi).
 - Daily limit: InpDailyMaxProfit/InpDailyMaxLoss (0=disabled). Query MT5 history deals hari ini (filter symbol + magic). Skip new entries saat limit tercapai. Existing positions tetap di-manage broker (TP/SL/BE).
 - After TP/SL/BE hit → continue tracking untuk next signal

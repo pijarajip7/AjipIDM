@@ -74,9 +74,7 @@ void UpdatePanel()
    PanelLabel(g_panelPrefix + "Trend", y, "Trend:     " + TrendString(g_trend), TrendColor(g_trend));
    y += lineH;
 
-   string htfText = InpUseHtfFilter ? TrendString(g_htfTrend) : "OFF";
-   color  htfClr  = InpUseHtfFilter ? TrendColor(g_htfTrend) : clrSilver;
-   PanelLabel(g_panelPrefix + "HtfTrend", y, "HTF Trend: " + htfText, htfClr);
+   PanelLabel(g_panelPrefix + "HtfTrend", y, "HTF Trend: " + TrendString(g_htfTrend), TrendColor(g_htfTrend));
    y += lineH;
 
    double todayPnl = GetDailyPnL();

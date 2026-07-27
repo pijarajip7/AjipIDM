@@ -3,10 +3,14 @@
 
 // HTF CONTEXT — trimmed structure/idm engine for the higher timeframe.
 // Ported from AjipIDM_Pullback/Structure/Reversal/Entry/Core.mqh, same
-// rules, operating on g_htf* globals + InpHtfTimeframe. Structure/idm
-// tracking only — never places trades, never invalidates, never checks
-// daily limits. It does draw its own swing/idm lines (DrawHtfSwings, own
-// object prefix) for visualization.
+// rules, operating on g_htf* globals + InpHtfTimeframe. Always active
+// (not optional) — drives TP, the equilibrium/discount filter, and
+// invalidation for every entry (see AjipIDM_Entry.mqh: ComputeHtfEntryLevels,
+// CheckHtfInvalidation). This engine itself never places trades or checks
+// daily limits directly — it only tracks structure/idm and, on its own
+// idm-taken event, records the level being watched (g_htfSweepPrice/Dir)
+// for CheckHtfInvalidation to act on. It also draws its own swing/idm
+// lines (DrawHtfSwings, own object prefix) for visualization.
 //==================================================================
 
 // HTF DETECT PULLBACK — port of DetectPullback (AjipIDM_Pullback.mqh)
@@ -554,8 +558,11 @@ void HtfRebuildStructure(datetime originTime, datetime endTime)
   }
 
 //==================================================================
-// HTF CHECK IDM TAKEN — structure-only port of the taken/trend-flip half
-// of CheckIdmTaken. No entry placement: HTF is context-only, never trades.
+// HTF CHECK IDM TAKEN — structure/trend-flip port of CheckIdmTaken's taken
+// half, plus recording the sweep watch (g_htfSweepPrice/Dir) for
+// CheckHtfInvalidation. This function itself never touches trades directly
+// — only sets state that AjipIDM_Entry.mqh's CheckHtfInvalidation/
+// ApplyHtfInvalidation act on.
 //==================================================================
 void HtfCheckIdmTaken(MqlRates &bar)
   {
@@ -579,6 +586,16 @@ void HtfCheckIdmTaken(MqlRates &bar)
 
    g_htfIdmTaken = true;
 
+   // Capture the level + direction being watched BEFORE Reverse flips
+   // g_htfTrend/g_htfIdmPrice to the new trend. dir=1 means this event
+   // threatens BUY-side LTF positions (HTF UP structure's support just
+   // got swept), dir=-1 threatens SELL-side positions. Overwrites any
+   // still-unresolved prior watch — the newest HTF event is what matters
+   // going forward. See CheckHtfInvalidation (AjipIDM_Entry.mqh) for the
+   // ongoing body-break check this feeds.
+   g_htfSweepPrice = g_htfIdmPrice;
+   g_htfSweepDir   = (g_htfTrend == TREND_UP) ? 1 : -1;
+
    PrintFormat("AjipIDM: HTF IDM TAKEN. Trend was %s, idm=%.5f, bar close=%.5f",
                TrendString(g_htfTrend), g_htfIdmPrice, bar.close);
 
@@ -586,6 +603,33 @@ void HtfCheckIdmTaken(MqlRates &bar)
       HtfReverseToDowntrend(bar);
    else if(g_htfTrend == TREND_DOWN)
       HtfReverseToUptrend(bar);
+  }
+
+//==================================================================
+// HTF TP GETTERS — port of GetLastSHDPrice/GetLastSLUPrice (LTF), scanning
+// g_htfSwings instead. Used as the structural TP for every entry now (see
+// ComputeHtfEntryLevels in AjipIDM_Entry.mqh) — TP is always HTF-referenced.
+//==================================================================
+double GetLastHtfSHDPrice()
+  {
+   int n = ArraySize(g_htfSwings);
+   for(int i = n - 1; i >= 0; i--)
+     {
+      if(g_htfSwings[i].isHigh)
+         return(g_htfSwings[i].price);
+     }
+   return(0.0);
+  }
+
+double GetLastHtfSLUPrice()
+  {
+   int n = ArraySize(g_htfSwings);
+   for(int i = n - 1; i >= 0; i--)
+     {
+      if(!g_htfSwings[i].isHigh)
+         return(g_htfSwings[i].price);
+     }
+   return(0.0);
   }
 
 //==================================================================
@@ -678,7 +722,7 @@ bool InitHtfStructure()
 //==================================================================
 void DrawHtfSwings()
   {
-   if(!InpDrawLines || !InpUseHtfFilter) return;
+   if(!InpDrawLines) return;
 
    ObjectsDeleteAll(0, g_htfObjPrefix);
 

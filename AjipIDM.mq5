@@ -2,7 +2,8 @@
 //|                                                    AjipIDM.mq5   |
 //|  Inducement-centric SMC strategy for MT5.                        |
 //|  Simple structure (SL/SH) WITHOUT VH/VL.                         |
-//|  Entry = idm taken + no body break → fade with RR 1:1.           |
+//|  Entry decision = LTF idm taken + no body break → fade the sweep.|
+//|  TP, equilibrium (discount/premium), invalidation = HTF-referenced|
 //|  Running-max swing detection from 50 candles init.               |
 //+------------------------------------------------------------------+
 #property copyright   "AjipSMC"
@@ -28,11 +29,9 @@ input double          InpRR          = 0.05;         // Risk:Reward (1=1:1, 2=1:
 input int             InpMinTpPoints = 300;           // Min TP distance in points (skip if below)
 input double          InpDailyMaxProfit = 10000.0;      // Daily max profit (0=disabled, stop new trades when reached)
 input double          InpDailyMaxLoss   = 10000.0;      // Daily max loss (0=disabled, stop new trades when reached)
-input ENUM_INVALIDATION_MODE InpInvalidationMode = INVALIDATION_FIXED_TP; // Invalidation TP action on body break
+input ENUM_INVALIDATION_MODE InpInvalidationMode = INVALIDATION_FIXED_TP; // Invalidation TP action on body break (HTF-driven, portfolio-level)
 input int             InpInvalidationTpPoints = 50; // Fixed TP points (used when mode=FIXED_TP)
-input bool             InpUseHtfFilter = false;      // Enable HTF trend filter on entries
-input ENUM_TIMEFRAMES  InpHtfTimeframe = PERIOD_M5;  // Higher timeframe for trend filter
-input bool             InpUseEquilibriumFilter = false; // Skip entry if close beyond equilibrium (sweep→TP midpoint)
+input ENUM_TIMEFRAMES  InpHtfTimeframe = PERIOD_M5;  // Higher timeframe — drives TP, equilibrium filter, and invalidation for every entry
 input bool             InpUseAggressiveEntry = false; // Enter at idm level intrabar (before bar close); reverses structure early + sets real SL/TP immediately
 input int             InpCandlesInit = 50;          // Lookback candles for initial trend
 input ulong           InpDeviation   = 10;          // Slippage (points)
@@ -81,8 +80,8 @@ int OnInit()
       // Not fatal; OnTick will attempt rebuild
      }
 
-   // Build initial HTF context (structure/idm only, never trades)
-   if(InpUseHtfFilter && !InitHtfStructure())
+   // Build initial HTF context — always active, drives TP/equilibrium/invalidation.
+   if(!InitHtfStructure())
       Print("AjipIDM: InitHtfStructure failed — will retry on first tick");
 
    UpdatePanel();
@@ -108,22 +107,22 @@ void OnTick()
    // excursions are captured, not just the closed-bar extreme.
    UpdateMfeMae();
 
-   // HTF context — own new-bar gate, runs every tick since HTF bars close
-   // less often than LTF bars (must not be gated behind the LTF early-return
-   // below, or an HTF closed-bar boundary could be silently skipped).
-   if(InpUseHtfFilter)
+   // HTF context — always active, own new-bar gate, runs every tick since
+   // HTF bars close less often than LTF bars (must not be gated behind the
+   // LTF early-return below, or an HTF closed-bar boundary could be
+   // silently skipped). Drives TP/equilibrium (ComputeHtfEntryLevels) and
+   // invalidation (CheckHtfInvalidation) for every entry.
+   MqlRates htfRates[];
+   ArraySetAsSeries(htfRates, true);
+   if(CopyRates(_Symbol, InpHtfTimeframe, 0, 3, htfRates) >= 3
+      && htfRates[1].time != g_htfLastBarTime)
      {
-      MqlRates htfRates[];
-      ArraySetAsSeries(htfRates, true);
-      if(CopyRates(_Symbol, InpHtfTimeframe, 0, 3, htfRates) >= 3
-         && htfRates[1].time != g_htfLastBarTime)
-        {
-         g_htfLastBarTime = htfRates[1].time;
-         UpdateHtfStructure(htfRates[1]);
-         DrawHtfSwings();
-         if(g_htfIdmPrice > 0.0)
-            HtfCheckIdmTaken(htfRates[1]);
-        }
+      g_htfLastBarTime = htfRates[1].time;
+      UpdateHtfStructure(htfRates[1]);
+      DrawHtfSwings();
+      if(g_htfIdmPrice > 0.0)
+         HtfCheckIdmTaken(htfRates[1]);
+      CheckHtfInvalidation(htfRates[1]);
      }
 
    // Aggressive entry — own per-tick check, runs every tick (not gated behind
@@ -150,8 +149,8 @@ void OnTick()
    UpdateStructure(rates[1]);
    if(InpDrawLines) DrawSwings();
 
-   // 2. Invalidate open position if body-break sweep level
-   CheckEntryInvalidation(rates[1]);
+   // 2. Cleanup: log + untrack any position that closed (TP/SL hit)
+   CheckEntryCleanup();
 
    // 3. Check idm taken on the just-closed bar
    CheckIdmTaken(rates[1]);

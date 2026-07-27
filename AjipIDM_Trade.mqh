@@ -1,34 +1,6 @@
 #ifndef AJIPIDM_TRADE_MQH
 #define AJIPIDM_TRADE_MQH
 
-// HELPER: Get last SHD price (for BUY TP)
-//==================================================================
-double GetLastSHDPrice()
-  {
-   int n = ArraySize(g_swings);
-   for(int i = n - 1; i >= 0; i--)
-     {
-      if(g_swings[i].isHigh)
-         return(g_swings[i].price);
-     }
-   return(0.0);
-  }
-
-//==================================================================
-// HELPER: Get last SLU price (for SELL TP)
-//==================================================================
-double GetLastSLUPrice()
-  {
-   int n = ArraySize(g_swings);
-   for(int i = n - 1; i >= 0; i--)
-     {
-      if(!g_swings[i].isHigh)
-         return(g_swings[i].price);
-     }
-   return(0.0);
-  }
-
-//==================================================================
 // OPEN TRADE — returns ticket (0 = failed)
 //==================================================================
 ulong OpenTrade(bool isBuy, double entry, double slRaw, double tpRaw)
@@ -237,7 +209,7 @@ bool DailyLimitReached()
 //==================================================================
 // WRITE TRADE CSV — append one closed-trade row (entry + exit + MFE/MAE)
 // to MQL5/Files/AjipIDM_Trades_<symbol>_<magic>.csv. Called once per
-// position from CheckEntryInvalidation right when the position is
+// position from CheckEntryCleanup right when the position is
 // detected closed (TP/SL/BE hit).
 //==================================================================
 void WriteTradeCsv(const EntryTracker &e)
