@@ -252,6 +252,14 @@ void CheckIdmTaken(MqlRates &bar)
 
    g_idmTaken = true;
 
+   // This bar already had an aggressive touch entry (CheckAggressiveIdmTouch
+   // reverses the trend intrabar using the SAME bar-to-be-closed as boundary
+   // context) — without this guard, this closed-bar pass can independently
+   // find "taken" on the freshly-reversed trend and open a SECOND entry for
+   // what is effectively the same event. Structure/reversal still proceeds
+   // normally below; only the entry itself is suppressed for this bar.
+   bool alreadyAggressive = InpUseAggressiveEntry && (bar.time == g_aggressiveFiredBarTime);
+
    PrintFormat("AjipIDM: IDM TAKEN. Trend was %s, idm=%.5f, bar close=%.5f",
                TrendString(g_trend), g_idmPrice, bar.close);
 
@@ -260,7 +268,11 @@ void CheckIdmTaken(MqlRates &bar)
       // Trend changes to DOWN. Build downtrend from last SHU (= SHD0).
       ReverseToDowntrend(bar);
 
-      if(doEntry && entryBuy && !g_initMode)
+      if(alreadyAggressive)
+        {
+         PrintFormat("AjipIDM: BUY skip — already entered aggressively this bar.");
+        }
+      else if(doEntry && entryBuy && !g_initMode)
         {
          if(DailyLimitReached())
            {
@@ -284,7 +296,11 @@ void CheckIdmTaken(MqlRates &bar)
       // Trend changes to UP. Build uptrend from last SLD (= SLU0).
       ReverseToUptrend(bar);
 
-      if(doEntry && !entryBuy && !g_initMode)
+      if(alreadyAggressive)
+        {
+         PrintFormat("AjipIDM: SELL skip — already entered aggressively this bar.");
+        }
+      else if(doEntry && !entryBuy && !g_initMode)
         {
          if(DailyLimitReached())
            {

@@ -166,6 +166,14 @@ Per-tick, saat idm LTF tersentuh (CheckAggressiveIdmTouch):
   4. OpenTrade(isBuy, entry, sl, tp) — SL/TP REAL langsung terpasang di order
   5. AddEntry(ticket, dir) — masuk tracking normal
 
+**Anti-double-entry:** begitu bar LTF yang disentuh itu BENERAN close, trend/idm
+sudah pindah ke yang baru (dari step 2) — jadi `CheckIdmTaken` di closed-bar bisa
+saja NEMU "taken" lagi untuk trend baru itu PADA BAR YANG SAMA (kalau bar-nya
+lebar), dan mau buka entry KEDUA untuk event yang sebenarnya sama. Dicegah via
+guard `bar.time == g_aggressiveFiredBarTime` di `CheckIdmTaken` — kalau match,
+entry di-skip (structure/reverse tetap jalan normal, cuma bagian OpenTrade-nya
+yang disuppress buat bar itu).
+
 Begitu bar LTF yang tadi "disentuh" itu BENERAN close (flow OnTick standar,
 tidak ada kode khusus tambahan): UpdateStructure() melanjutkan structure LTF
 yang sudah di-reverse duluan di step 2, seperti bar manapun. Invalidation entry
