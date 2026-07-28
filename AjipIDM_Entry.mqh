@@ -71,6 +71,12 @@ void RemoveEntry(int idx)
 
 //==================================================================
 // COMPUTE HTF-REFERENCED ENTRY LEVELS
+// Requires g_htfTrend aligned with the entry direction (BUY needs HTF UP,
+// SELL needs HTF DOWN) — without this, GetLastHtfSHDPrice/SLUPrice return
+// a swing from the WRONG-shaped range (e.g. BUY during HTF DOWN would use
+// the most recent, LOWER high as TP, sitting below g_htfIdmPrice instead
+// of above it — the equilibrium split stops being a meaningful discount/
+// premium check and nearly always passes).
 // TP = last HTF SH/SL swing (GetLastHtfSHDPrice/SLUPrice). Equilibrium =
 // midpoint of [g_htfIdmPrice, tp] — BUY only allowed in discount (entry
 // price at/below midpoint), SELL only in premium (at/above). SL from RR.
@@ -81,6 +87,13 @@ void RemoveEntry(int idx)
 bool ComputeHtfEntryLevels(bool isBuy, double entryPrice, double &outTp, double &outSl)
   {
    string dirLabel = isBuy ? "BUY" : "SELL";
+
+   if(g_htfTrend != (isBuy ? TREND_UP : TREND_DOWN))
+     {
+      PrintFormat("AjipIDM: %s skip — HTF trend not aligned (HTF=%s, need %s)",
+                  dirLabel, TrendString(g_htfTrend), isBuy ? "UP" : "DOWN");
+      return false;
+     }
 
    double tp = isBuy ? GetLastHtfSHDPrice() : GetLastHtfSLUPrice();
    if(tp <= 0.0 || (isBuy ? tp <= entryPrice : tp >= entryPrice))

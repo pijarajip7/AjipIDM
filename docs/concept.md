@@ -81,6 +81,18 @@ HTF context (`AjipIDM_HtfContext.mqh`, globals `g_htf*`) **selalu aktif** (tidak
 - Reuse `InpCandlesInit` untuk lookback init (tidak ada input terpisah).
 - Logic (pullback, simple structure, idm, reversal) adalah port 1:1 dari engine LTF.
 
+**HTF trend alignment** — WAJIB, dicek pertama sebelum apa pun:
+```
+BUY  hanya jalan kalau g_htfTrend == TREND_UP
+SELL hanya jalan kalau g_htfTrend == TREND_DOWN
+```
+Tanpa ini, `GetLastHtfSHDPrice`/`SLUPrice` bisa ambil swing dari struktur yang
+"salah bentuk" — misal BUY saat `g_htfTrend == DOWN`: TP (SH terakhir) malah
+lebih RENDAH dari `g_htfIdmPrice` (SH lama, lebih tinggi) karena downtrend
+bikin higher-highs makin turun. Equilibrium jadi ada DI ATAS tp, sehingga
+syarat `tp > entry` (validasi arah) hampir otomatis bikin equilibrium check
+lolos — filter discount/premium-nya jadi nyaris tidak menyaring apa-apa.
+
 **TP** (`ComputeHtfEntryLevels`, `AjipIDM_Entry.mqh`):
 ```
 BUY:  tp = GetLastHtfSHDPrice()   (last SH-type swing di g_htfSwings)
