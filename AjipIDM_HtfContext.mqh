@@ -633,6 +633,72 @@ double GetLastHtfSLUPrice()
   }
 
 //==================================================================
+// HTF PREV SWING BODY-BROKEN FILTER — structural quality check on the TP
+// swing (GetLastHtfSHDPrice/SLUPrice): was the SAME-TYPE swing right before
+// it confirmed by a candle CLOSE beyond its level (real break of structure),
+// or only wicked through (liquidity sweep, no close beyond)? Example
+// (uptrend): current TP = last SH swing (SHU_cur). SHU_prev = the SH swing
+// right before it. If no HTF bar between SHU_prev and SHU_cur ever CLOSED
+// above SHU_prev.price, SHU_prev was only swept, not body-broken — the leg
+// that produced SHU_cur is structurally weak, so skip the entry.
+//
+// The level to beat RATCHETS as the leg unfolds (same "deepening watch"
+// pattern as g_htfSweepPrice in CheckHtfInvalidation): it starts at
+// SHU_prev.price, and each bar that wicks further without closing beyond
+// the current watch level pushes the watch level out to that bar's own
+// extreme. A later bar only counts as a real break if its CLOSE beats the
+// deepest extreme touched so far — reclaiming back above the ORIGINAL
+// SHU_prev level after the leg wicked even further out is NOT enough.
+//
+// Called from ComputeHtfEntryLevels (AjipIDM_Entry.mqh), isHigh = isBuy
+// (BUY checks the previous SH, SELL checks the previous SL).
+// Fails OPEN (returns true / entry allowed) when there isn't enough swing
+// history yet (fresh reversal, only one same-type swing so far) — this is
+// a structural-quality gate, not a hard requirement for every leg.
+//==================================================================
+bool HtfPrevSwingBodyBroken(bool isHigh)
+  {
+   int n = ArraySize(g_htfSwings);
+
+   int idxCur = -1;
+   for(int i = n - 1; i >= 0; i--)
+     {
+      if(g_htfSwings[i].isHigh == isHigh) { idxCur = i; break; }
+     }
+   if(idxCur < 0) return true; // no swing of this type yet
+
+   int idxPrev = -1;
+   for(int i = idxCur - 1; i >= 0; i--)
+     {
+      if(g_htfSwings[i].isHigh == isHigh) { idxPrev = i; break; }
+     }
+   if(idxPrev < 0) return true; // only one swing of this type since the last reversal — nothing to compare against
+
+   double watchLevel = g_htfSwings[idxPrev].price;
+
+   int prevShift = iBarShift(_Symbol, InpHtfTimeframe, g_htfSwings[idxPrev].time);
+   int curShift  = iBarShift(_Symbol, InpHtfTimeframe, g_htfSwings[idxCur].time);
+   if(prevShift < 0 || curShift < 0 || prevShift <= curShift) return true; // shouldn't happen — fail open
+
+   int count = prevShift - curShift; // bars strictly AFTER prevShift's bar, up to and including curShift's bar
+   MqlRates legBars[];
+   ArraySetAsSeries(legBars, false); // chronological (oldest→newest) — walk the leg forward
+   if(CopyRates(_Symbol, InpHtfTimeframe, curShift, count, legBars) <= 0) return true;
+
+   for(int i = 0; i < ArraySize(legBars); i++)
+     {
+      bool brokeNow = isHigh ? (legBars[i].close > watchLevel) : (legBars[i].close < watchLevel);
+      if(brokeNow) return true;
+
+      // No break yet — deepen the watch level if this bar's own wick pushed further.
+      if(isHigh  && legBars[i].high > watchLevel) watchLevel = legBars[i].high;
+      if(!isHigh && legBars[i].low  < watchLevel) watchLevel = legBars[i].low;
+     }
+
+   return false; // only ever wicked further — never closed back beyond the deepest sweep
+  }
+
+//==================================================================
 // INIT HTF STRUCTURE — port of InitStructure
 //==================================================================
 bool InitHtfStructure()

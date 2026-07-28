@@ -98,8 +98,9 @@ Catatan:
    (TP/SL hit) → log CSV → remove dari tracking. (Invalidation tidak lagi di
    sini — lihat step 0, HTF-driven.)
 4. CheckIdmTaken: cek idm taken LTF pada closed bar (entry decision, tidak berubah)
-   - Kalau lolos (no body break) → daily limit → ComputeHtfEntryLevels (TP HTF +
-     equilibrium HTF + min TP points + SL dari RR) → OpenTrade
+   - Kalau lolos (no body break) → daily limit → ComputeHtfEntryLevels (prev-swing
+     body-break filter + TP HTF + equilibrium HTF + min TP points + SL dari RR) →
+     OpenTrade
 5. If entry: place MT5 order, AddEntry to tracking
 6. Multi-position — tidak ada batasan jumlah posisi
 ```

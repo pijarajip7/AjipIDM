@@ -93,6 +93,29 @@ bikin higher-highs makin turun. Equilibrium jadi ada DI ATAS tp, sehingga
 syarat `tp > entry` (validasi arah) hampir otomatis bikin equilibrium check
 lolos — filter discount/premium-nya jadi nyaris tidak menyaring apa-apa.
 
+**Previous-swing body-break filter** (`HtfPrevSwingBodyBroken`, `AjipIDM_HtfContext.mqh`) — WAJIB, dicek sebelum TP:
+```
+Uptrend (BUY):   TP swing = SHU_cur (SH terakhir). SHU_prev = SH sebelum itu.
+                 Walk HTF bar-by-bar dari SHU_prev sampai SHU_cur, watchLevel
+                 mulai dari SHU_prev.price:
+                   bar.close > watchLevel → BROKEN, entry BOLEH lanjut, stop
+                   belum broken, tapi bar.high > watchLevel → watchLevel
+                     naik ke bar.high itu (RATCHET, ikut level sweep terdalam)
+                 Kalau sampai SHU_cur tidak ada bar yang close lewat watchLevel
+                 (yang sudah ter-ratchet) → SKIP entry.
+Downtrend (SELL): sama, cermin (watchLevel turun ke bar.low, close harus < watchLevel).
+```
+Rasional: kalau level SH/SL sebelumnya cuma disweep (wick tembus, close gagal
+reclaim), leg yang membentuk swing TP saat ini secara struktural lemah — bukan
+breakout asli, jadi entry di-skip. **Level yang wajib ditembus ikut naik/turun**
+kalau price sweep makin dalam tanpa reclaim (sama seperti pola deepening watch
+`g_htfSweepPrice` di [Invalidation](#htf-referenced-entry-engine-tp-equilibrium-invalidation)
+di bawah) — reclaim balik ke atas level SHU_prev ASLI saja TIDAK cukup kalau
+price sempat sweep lebih jauh lagi sebelum reclaim itu; harus reclaim lewat
+titik sweep TERDALAM. Kalau belum ada swing sejenis sebelumnya (baru saja
+reversal, cuma 1 swing sejenis) filter ini fail-open (BOLEH entry) — tidak ada
+history buat dibandingkan.
+
 **TP** (`ComputeHtfEntryLevels`, `AjipIDM_Entry.mqh`):
 ```
 BUY:  tp = GetLastHtfSHDPrice()   (last SH-type swing di g_htfSwings)

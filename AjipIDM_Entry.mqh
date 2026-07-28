@@ -77,6 +77,12 @@ void RemoveEntry(int idx)
 // the most recent, LOWER high as TP, sitting below g_htfIdmPrice instead
 // of above it — the equilibrium split stops being a meaningful discount/
 // premium check and nearly always passes).
+// Also requires the previous same-type HTF swing to be body-broken, not just
+// swept (HtfPrevSwingBodyBroken) — e.g. uptrend: the SH before the current TP
+// swing must have had a HTF candle CLOSE beyond it (ratcheting to whatever
+// deeper wick the leg reached along the way, not just the original level),
+// otherwise the leg is structurally weak (pure liquidity sweep) and entry
+// is skipped.
 // TP = last HTF SH/SL swing (GetLastHtfSHDPrice/SLUPrice). Equilibrium =
 // midpoint of [g_htfIdmPrice, tp] — BUY only allowed in discount (entry
 // price at/below midpoint), SELL only in premium (at/above). SL from RR.
@@ -92,6 +98,13 @@ bool ComputeHtfEntryLevels(bool isBuy, double entryPrice, double &outTp, double 
      {
       PrintFormat("AjipIDM: %s skip — HTF trend not aligned (HTF=%s, need %s)",
                   dirLabel, TrendString(g_htfTrend), isBuy ? "UP" : "DOWN");
+      return false;
+     }
+
+   if(!HtfPrevSwingBodyBroken(isBuy))
+     {
+      PrintFormat("AjipIDM: %s skip — HTF previous %s only swept, not body-broken",
+                  dirLabel, isBuy ? "SH" : "SL");
       return false;
      }
 
