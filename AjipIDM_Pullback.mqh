@@ -9,13 +9,22 @@
 //
 // Outside bar mode (bar breaks BOTH base.high AND base.low):
 //   - Store as g_outsideBar, set g_outsidePending = true
-//   - Don't record swing yet — wait for next bar to resolve:
+//   - Don't record swing yet — wait for next bar to resolve. SL and SH are
+//     never committed off the SAME bar:
 //     PHASE_UP:
-//       next breaks outside.high → continuation UP, commit outside.low as SL
-//       next breaks outside.low  → reversal DOWN, commit outside.high as SH
+//       next breaks outside.high → continuation UP: base.high (BEFORE the
+//         outside bar) commits as SH, THEN outside.low commits as SL
+//       next breaks outside.low  → reversal DOWN: commit outside.high as SH only
 //     PHASE_DOWN:
-//       next breaks outside.low  → continuation DOWN, commit outside.high as SH
-//       next breaks outside.high → reversal UP, commit outside.low as SL
+//       next breaks outside.low  → continuation DOWN: base.low (BEFORE the
+//         outside bar) commits as SL, THEN outside.high commits as SH
+//       next breaks outside.high → reversal UP: commit outside.low as SL only
+//   - If the NEXT bar is itself outside relative to the pending outside bar
+//     (breaks BOTH its extremes) — still ambiguous, not resolved yet. The
+//     old outsideBar is promoted into base (it now plays the role the
+//     pre-outside base played for it), outsideBar extends to this bar's own
+//     extremes, resolution keeps waiting. Chains indefinitely; the original
+//     pre-chain base is superseded once this happens.
 //==================================================================
 void DetectPullback(MqlRates &bar)
   {
@@ -32,11 +41,26 @@ void DetectPullback(MqlRates &bar)
    //--- Outside bar pending resolution ---
    if(g_outsidePending)
      {
+      // Still ambiguous — this bar ALSO breaks both extremes of the pending
+      // outside bar. Promote the old outsideBar into base (it now plays the
+      // role the pre-outside base played for it), extend outsideBar to this
+      // bar's own extremes, keep waiting. Same deepening-watch idea as
+      // HtfPrevSwingBodyBroken / CheckHtfInvalidation.
+      if(bar.high > g_outsideBar.high && bar.low < g_outsideBar.low)
+        {
+         g_base = g_outsideBar;
+         g_outsideBar.high = bar.high;
+         g_outsideBar.low  = bar.low;
+         g_outsideBar.time = bar.time;
+         return;
+        }
+
       if(g_phase == PHASE_UP)
         {
          if(bar.high > g_outsideBar.high)
            {
-            // Continuation UP: commit outside.low as SL, resolving bar = new base
+            // Continuation UP: base.high (before outside bar) = SH, outside.low = SL
+            AddPbSwing(g_base.high, g_base.time, true);
             AddPbSwing(g_outsideBar.low, g_outsideBar.time, false);
             g_outsidePending = false;
             g_base.high = bar.high;
@@ -69,7 +93,8 @@ void DetectPullback(MqlRates &bar)
         {
          if(bar.low < g_outsideBar.low)
            {
-            // Continuation DOWN: commit outside.high as SH
+            // Continuation DOWN: base.low (before outside bar) = SL, outside.high = SH
+            AddPbSwing(g_base.low, g_base.time, false);
             AddPbSwing(g_outsideBar.high, g_outsideBar.time, true);
             g_outsidePending = false;
             g_base.high = bar.high;

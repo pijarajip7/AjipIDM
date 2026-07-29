@@ -29,10 +29,26 @@ void HtfDetectPullback(MqlRates &bar)
    //--- Outside bar pending resolution ---
    if(g_htfOutsidePending)
      {
+      // Still ambiguous — this bar ALSO breaks both extremes of the pending
+      // outside bar. Promote the old outsideBar into base (it now plays the
+      // role the pre-outside base played for it), extend outsideBar to this
+      // bar's own extremes, keep waiting. Same deepening-watch idea as
+      // HtfPrevSwingBodyBroken / CheckHtfInvalidation.
+      if(bar.high > g_htfOutsideBar.high && bar.low < g_htfOutsideBar.low)
+        {
+         g_htfBase = g_htfOutsideBar;
+         g_htfOutsideBar.high = bar.high;
+         g_htfOutsideBar.low  = bar.low;
+         g_htfOutsideBar.time = bar.time;
+         return;
+        }
+
       if(g_htfPhase == PHASE_UP)
         {
          if(bar.high > g_htfOutsideBar.high)
            {
+            // Continuation UP: base.high (before outside bar) = SH, outside.low = SL
+            HtfAddPbSwing(g_htfBase.high, g_htfBase.time, true);
             HtfAddPbSwing(g_htfOutsideBar.low, g_htfOutsideBar.time, false);
             g_htfOutsidePending = false;
             g_htfBase.high = bar.high;
@@ -62,6 +78,8 @@ void HtfDetectPullback(MqlRates &bar)
         {
          if(bar.low < g_htfOutsideBar.low)
            {
+            // Continuation DOWN: base.low (before outside bar) = SL, outside.high = SH
+            HtfAddPbSwing(g_htfBase.low, g_htfBase.time, false);
             HtfAddPbSwing(g_htfOutsideBar.high, g_htfOutsideBar.time, true);
             g_htfOutsidePending = false;
             g_htfBase.high = bar.high;

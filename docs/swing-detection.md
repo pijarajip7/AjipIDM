@@ -24,18 +24,19 @@ Catatan: Outside bar ditangani via pending resolution (lihat bagian di bawah).
 
 ## Outside Bar Handling (pending resolution)
 
-Outside bar = bar yang break BOTH base.high AND base.low. Implementasi di `DetectPullback`:
+Outside bar = bar yang break BOTH base.high AND base.low. Implementasi di `DetectPullback` (LTF) / `HtfDetectPullback` (HTF) — identik, port 1:1.
 
-1. Simpan outside bar sebagai `g_outsideBar`, set `g_outsidePending = true`
-2. Jangan record swing dulu — tunggu bar berikutnya resolve:
+1. Simpan outside bar sebagai `g_outsideBar`, set `g_outsidePending = true`. `g_base` (extremes SEBELUM outside bar) TIDAK disentuh.
+2. Jangan record swing dulu — tunggu bar berikutnya resolve. **SL dan SH tidak pernah di-commit dari bar yang sama:**
    - **PHASE_UP:**
-     - Next breaks outside.high → continuation UP, commit outside.low sebagai SL
-     - Next breaks outside.low → reversal DOWN, commit outside.high sebagai SH
+     - Next breaks outside.high → continuation UP: `g_base.high` (SEBELUM outside bar) commit sebagai SH, LALU `outside.low` commit sebagai SL — dua swing, dua bar berbeda
+     - Next breaks outside.low → reversal DOWN: commit `outside.high` sebagai SH saja (`g_base.high` sebelum outside bar TIDAK direkam — bukan titik akhir up-move yang sebenarnya, karena up-move lanjut lebih tinggi lagi ke `outside.high` sebelum reverse)
    - **PHASE_DOWN:**
-     - Next breaks outside.low → continuation DOWN, commit outside.high sebagai SH
-     - Next breaks outside.high → reversal UP, commit outside.low sebagai SL
-3. Outside bar bisa extend jika bar berikutnya lebih extreme sebelum resolve
-4. Reset di InitStructure, ReverseToDowntrend, ReverseToUptrend
+     - Next breaks outside.low → continuation DOWN: `g_base.low` (SEBELUM outside bar) commit sebagai SL, LALU `outside.high` commit sebagai SH — dua swing, dua bar berbeda
+     - Next breaks outside.high → reversal UP: commit `outside.low` sebagai SL saja (mirror alasan di atas)
+3. Outside bar bisa extend (widen `g_outsideBar.high`/`.low`) jika bar berikutnya belum break salah satu extreme
+4. **Chained outside bar** — kalau bar berikutnya break KEDUA extreme `g_outsideBar` lagi (bukan cuma satu sisi), belum resolve: outside bar lama di-promote jadi `g_base` (`g_base = g_outsideBar`), `g_outsideBar` diperluas ke extremes bar baru, tetap pending, tunggu bar berikutnya lagi. Bisa chain berkali-kali — base pre-chain yang paling awal ke-supersede begitu ada minimal 2 outside bar berturut-turut sebelum resolve.
+5. Reset di InitStructure, ReverseToDowntrend, ReverseToUptrend
 
 ## Stage 2: Simple Structure (filter dengan trend rules)
 
