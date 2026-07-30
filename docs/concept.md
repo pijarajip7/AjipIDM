@@ -140,13 +140,15 @@ Kalau `g_htfIdmPrice` belum siap (belum ke-init), entry di-skip.
 - Visual dibedakan dari garis LTF: swing line dotted (`STYLE_DOT`, width 2, ungu untuk SH / emas untuk SL) vs LTF solid (dodger blue/orange red). idm line HTF kuning dash-dot vs idm LTF hitam dash.
 - Redraw dipanggil tiap HTF bar closed diproses, plus di `InitHtfStructure` dan tiap kali `HtfReverseToDowntrend`/`HtfReverseToUptrend` (mirror pola LTF).
 
-## Fixed Lot, No SL/TP
+## Fixed Lot, No SL/TP at Entry
 
 Varian ini tidak lagi menghitung lot dari target profit maupun SL dari RR:
 - `OpenTrade` selalu buka posisi dengan lot = `InpFixedLot`, SL=0, TP=0.
-- Semua exit murni datang dari dua mekanisme di bawah — tidak ada order-level TP/SL sama sekali.
+- Exit datang dari dua mekanisme di bawah — tidak ada TP order sama sekali. SL
+  TETAP nol sampai partial close terjadi (lihat breakeven SL di bawah); tidak
+  ada SL awal di entry.
 
-## Partial Close (One-Time per Posisi)
+## Partial Close (One-Time per Posisi) + Breakeven SL
 
 `CheckPartialClose` (`AjipIDM_Entry.mqh`), jalan tiap tick untuk setiap posisi yang ditrack:
 ```
@@ -155,10 +157,14 @@ profitPoints = (dir BUY: Bid - entryPrice) atau (dir SELL: entryPrice - Ask), da
 Kalau profitPoints >= InpPartialClosePoints DAN belum pernah partial-close:
   closeVolume = posVolume * (InpPartialClosePercent / 100), dibulatkan ke volume step
   Kalau closeVolume atau remainder < g_volMin → skip (terlalu kecil buat displit)
-  Sebaliknya → PositionClosePartial(ticket, closeVolume)
-  → tandai partialClosed = true (SATU KALI SAJA per posisi, tidak scaling)
+  Sebaliknya:
+    1. PositionClosePartial(ticket, closeVolume)
+    2. Kalau berhasil dan sisa posisi masih ada → PositionModify(ticket, SL=entryPrice, TP=0)
+       (SL dipindah ke BREAKEVEN — TP tetap 0, tidak berubah)
+  → tandai partialClosed = true (SATU KALI SAJA per posisi, tidak scaling —
+    BE SL juga cuma di-set sekali di titik ini, tidak di-trail lebih lanjut)
 ```
-Sisa volume (`remainder`) tetap terbuka tanpa SL/TP, menunggu daily close-all atau ditutup manual.
+Sisa volume (`remainder`) jalan terus dengan SL di breakeven (tanpa TP), menunggu stop-out di entry, daily close-all, atau ditutup manual.
 
 ## Daily Close-All (Target / Max Loss)
 
@@ -225,7 +231,9 @@ Contoh ini mengilustrasikan siklus reversal + ENTRY DECISION di LTF (kapan/arah 
    Equilibrium HTF dicek via HtfEntryAllowed (struktur HTF saat itu) — kalau
    lolos, BUY @ 109, lot = InpFixedLot, tanpa SL/TP.
 
-4. Posisi jalan tanpa TP/SL — partial close sekali di +InpPartialClosePoints,
-   sisanya ditutup saat daily target/max loss tercapai (CheckDailyCloseAll).
+4. Posisi jalan tanpa TP/SL — di +InpPartialClosePoints, partial close sekali
+   (InpPartialClosePercent dari volume) lalu SL sisanya dipindah ke breakeven
+   (109). Sisa posisi ditutup saat kena BE atau daily target/max loss
+   tercapai (CheckDailyCloseAll).
 5. Siklus reversal LTF berikutnya berjalan sama seperti di atas untuk SELL.
 ```

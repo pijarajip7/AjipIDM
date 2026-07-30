@@ -4,8 +4,9 @@
 //|  Simple structure (SL/SH) WITHOUT VH/VL.                         |
 //|  Entry decision = LTF idm taken + no body break → fade the sweep,|
 //|  gated by HTF equilibrium (discount/premium). Fixed lot, no      |
-//|  SL/TP — one-time partial close at InpPartialClosePoints, rest   |
-//|  rides until daily target/max loss closes ALL positions.         |
+//|  SL/TP at entry — one-time partial close at InpPartialClosePoints|
+//|  moves SL to breakeven on the rest, which then rides until daily |
+//|  target/max loss closes ALL positions.                           |
 //|  Running-max swing detection from 50 candles init.               |
 //+------------------------------------------------------------------+
 #property copyright   "AjipSMC"

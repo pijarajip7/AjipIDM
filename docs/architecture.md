@@ -107,13 +107,17 @@ Catatan:
 
 ## Position Management
 
-- Tidak ada TP/SL sama sekali — order selalu dibuka dengan SL=0, TP=0.
+- Tidak ada TP/SL di entry — order selalu dibuka dengan SL=0, TP=0. TP tetap 0
+  selamanya (tidak pernah ada TP order); SL bisa berubah setelah partial close
+  (lihat di bawah).
 - Lot size: fixed, `InpFixedLot` untuk setiap entry (tidak dihitung dari target profit).
 - Multi-position — tidak ada batasan jumlah posisi terbuka.
-- Partial close: one-time per posisi, tiap tick via `CheckPartialClose` — begitu
-  floating profit posisi >= `InpPartialClosePoints`, tutup `InpPartialClosePercent`
-  dari volumenya (`PositionClosePartial`), sisanya tetap open tanpa SL/TP.
-  Di-skip kalau closeVolume atau remainder di bawah `SYMBOL_VOLUME_MIN` broker.
+- Partial close + breakeven SL: one-time per posisi, tiap tick via
+  `CheckPartialClose` — begitu floating profit posisi >= `InpPartialClosePoints`,
+  tutup `InpPartialClosePercent` dari volumenya (`PositionClosePartial`), lalu
+  `PositionModify` SL sisa posisi ke `entryPrice` (breakeven, TP tetap 0).
+  Di-skip (termasuk BE SL-nya) kalau closeVolume atau remainder di bawah
+  `SYMBOL_VOLUME_MIN` broker.
 - Daily close-all: `InpDailyMaxProfit`/`InpDailyMaxLoss` (0=disabled). Tiap tick,
   `CheckDailyCloseAll` jumlah `GetDailyPnL()` (realized) + `GetFloatingPnL()`
   (floating semua posisi open) — begitu nyentuh target/loss, `CloseAllPositions()`

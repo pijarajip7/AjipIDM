@@ -59,8 +59,9 @@ void UpdateMfeMae()
 //==================================================================
 // CHECK PARTIAL CLOSE — one-time per position. Once a tracked position's
 // floating profit reaches InpPartialClosePoints (price distance in points,
-// favorable direction), close InpPartialClosePercent of its volume and mark
-// it done — the remainder rides untouched until the daily close-all.
+// favorable direction), close InpPartialClosePercent of its volume, move the
+// remainder's SL to breakeven (entryPrice), and mark it done — the remainder
+// then rides at BE until the daily close-all (or gets stopped out at entry).
 // Called every tick, same cadence as UpdateMfeMae.
 //==================================================================
 void CheckPartialClose()
@@ -98,11 +99,27 @@ void CheckPartialClose()
          continue;
         }
 
-      if(trade.PositionClosePartial(g_entries[i].ticket, closeVolume))
-         PrintFormat("AjipIDM: Partial close done. Ticket=%I64u closed=%.2f remaining=%.2f (+%.0f pts)",
-                     g_entries[i].ticket, closeVolume, remainder, profitPoints);
-      else
+      if(!trade.PositionClosePartial(g_entries[i].ticket, closeVolume))
+        {
          PrintFormat("AjipIDM: Partial close FAILED. Ticket=%I64u retcode=%d (%s)",
+                     g_entries[i].ticket, trade.ResultRetcode(), trade.ResultRetcodeDescription());
+         continue;
+        }
+
+      PrintFormat("AjipIDM: Partial close done. Ticket=%I64u closed=%.2f remaining=%.2f (+%.0f pts)",
+                  g_entries[i].ticket, closeVolume, remainder, profitPoints);
+
+      // Move the remainder's SL to breakeven — closeVolume changed the
+      // ticket's volume but not its SL/TP, so this still needs an explicit
+      // PositionModify. TP stays 0 (no TP in this variant).
+      if(!PositionSelectByTicket(g_entries[i].ticket))
+         continue; // fully closed already (e.g. broker rounded remainder away)
+
+      double beSl = NormalizeDouble(entryPrice, g_digits);
+      if(trade.PositionModify(g_entries[i].ticket, beSl, PositionGetDouble(POSITION_TP)))
+         PrintFormat("AjipIDM: Breakeven SL set. Ticket=%I64u SL=%.5f", g_entries[i].ticket, beSl);
+      else
+         PrintFormat("AjipIDM: Breakeven SL FAILED. Ticket=%I64u retcode=%d (%s)",
                      g_entries[i].ticket, trade.ResultRetcode(), trade.ResultRetcodeDescription());
      }
   }
