@@ -45,7 +45,7 @@ void DetectPullback(MqlRates &bar)
       // outside bar. Promote the old outsideBar into base (it now plays the
       // role the pre-outside base played for it), extend outsideBar to this
       // bar's own extremes, keep waiting. Same deepening-watch idea as
-      // HtfPrevSwingBodyBroken / CheckHtfInvalidation.
+      // HtfPrevSwingBodyBroken.
       if(bar.high > g_outsideBar.high && bar.low < g_outsideBar.low)
         {
          g_base = g_outsideBar;

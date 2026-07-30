@@ -1,6 +1,6 @@
 # AjipIDM — Progress & Documentation
 
-> Strategy: Inducement-centric SMC untuk MT5 EA. Simple structure (SL/SH) tanpa VH/VL. Entry = idm taken + no body break → fade dengan configurable RR. Multi-position dengan invalidation (body-break sweep → configurable: do nothing / TP fixed points).
+> Strategy: Inducement-centric SMC untuk MT5 EA. Simple structure (SL/SH) tanpa VH/VL. Entry = idm taken + no body break → fade, digating equilibrium HTF. Fixed lot, tanpa SL/TP — exit via one-time partial close (points) + daily target/max loss close-all.
 
 ---
 
@@ -8,7 +8,7 @@
 
 | Dokumen | Isi |
 |---------|-----|
-| [docs/concept.md](docs/concept.md) | Konsep inti, naming convention, idm definition, entry rules, entry invalidation, HTF trend filter, contoh full cycle |
+| [docs/concept.md](docs/concept.md) | Konsep inti, naming convention, idm definition, entry rules, HTF equilibrium gate, partial close, daily close-all, contoh full cycle |
 | [docs/architecture.md](docs/architecture.md) | Input parameters, info panel, Init/OnTick flow, position management |
 | [docs/swing-detection.md](docs/swing-detection.md) | 2-stage swing detection algorithm (pullback + simple structure) |
 | [docs/bugfixes.md](docs/bugfixes.md) | Riwayat bug fix (10 round) |
@@ -38,8 +38,8 @@
 | `AjipIDM_Pullback.mqh` | Stage 1: base_candle pullback detection + outside bar |
 | `AjipIDM_Structure.mqh` | Stage 2: simple structure build (filter + premature update) |
 | `AjipIDM_Reversal.mqh` | ReverseToDowntrend/Up + RebuildStructure (live replay) |
-| `AjipIDM_Entry.mqh` | CheckIdmTaken + entry logic + entry invalidation tracking |
-| `AjipIDM_Trade.mqh` | OpenTrade, lot calc, swing helpers, MFE/MAE CSV export |
+| `AjipIDM_Entry.mqh` | CheckIdmTaken + entry logic + partial close + daily close-all |
+| `AjipIDM_Trade.mqh` | OpenTrade (fixed lot), CloseAllPositions, swing helpers, MFE/MAE CSV export |
 | `AjipIDM_Core.mqh` | InitStructure, OnTick dispatch |
 | `AjipIDM_HtfContext.mqh` | HTF trend filter — trimmed structure/idm engine (context-only, no trading) + chart drawing |
 | `AjipIDM_Panel.mqh` | On-chart info panel — trend, HTF trend, today/week/month realized P/L, live open MFE/MAE |

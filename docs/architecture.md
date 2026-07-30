@@ -6,20 +6,19 @@ Files: `AjipIDM.mq5` (main) + 9 `.mqh` includes (see Files table in [README.md](
 
 ```
 InpTimeframe    = PERIOD_M15     — Working timeframe
-InpTargetAmount = 100.0          — Target profit per trade (USD)
+InpFixedLot     = 0.10           — Fixed lot size per entry (tidak ada SL/TP di varian ini)
 InpCandlesInit  = 50             — Lookback candles untuk initial trend
 InpDeviation    = 10             — Slippage (points)
 InpMagicNumber  = 99001          — Magic number
 InpDrawLines    = true           — Draw structure lines on chart
 InpMaxLines     = 500            — Max trendline objects
-InpRR           = 1.0            — Risk:Reward (1=1:1, 2=1:2, 0.5=1:0.5, 0=NO SL)
-InpMinTpPoints  = 0              — Min TP distance in points (0=no filter)
-InpDailyMaxProfit = 0.0          — Daily max profit in account currency (0=disabled)
-InpDailyMaxLoss   = 0.0          — Daily max loss in account currency (0=disabled)
-InpInvalidationMode     = INVALIDATION_DO_NOTHING — Aksi TP saat HTF body-break invalidasi (DO_NOTHING / FIXED_TP, portfolio-level, avg entry)
-InpInvalidationTpPoints = 300     — Fixed TP points dari avg entry (dipakai jika mode=FIXED_TP; 0=break-even)
-InpHtfTimeframe = PERIOD_H1      — Higher timeframe — SELALU aktif, sumber TP/equilibrium/invalidation (lihat concept.md)
-InpUseAggressiveEntry = false    — Enter di idm level intrabar (sebelum bar close), reverse LTF lebih awal + SL/TP HTF langsung terpasang
+InpMinTpPoints  = 0              — Min HTF reference distance in points (setup-quality filter, 0=no filter)
+InpDailyMaxProfit = 0.0          — Daily target — close ALL positions + stop entry baru saat tercapai (0=disabled)
+InpDailyMaxLoss   = 0.0          — Daily max loss — close ALL positions + stop entry baru saat tercapai (0=disabled)
+InpPartialClosePoints  = 1000    — Points profit untuk trigger one-time partial close (0=disabled)
+InpPartialClosePercent = 50.0    — % volume posisi yang ditutup di threshold partial close
+InpHtfTimeframe = PERIOD_H1      — Higher timeframe — SELALU aktif, sumber equilibrium filter (lihat concept.md)
+InpUseAggressiveEntry = false    — Enter di idm level intrabar (sebelum bar close), reverse LTF lebih awal
 InpShowPanel    = true           — Show info panel (trend + P/L) on chart
 InpPanelCorner  = CORNER_LEFT_UPPER — Panel corner
 InpPanelX       = 10             — Panel X offset (px)
@@ -58,13 +57,13 @@ kecatat, bukan cuma extreme di closed bar:
     mae = min(mae, profit)
 ```
 
-Saat posisi terdeteksi closed (TP/SL/BE hit — dicek di `CheckEntryCleanup`), `WriteTradeCsv()` dipanggil SEBELUM entry dihapus dari tracking:
-- Query exit info dari `HistorySelectByPosition(ticket)`: exit price/time, close reason (TP/SL/STOPOUT/OTHER dari `DEAL_REASON`), realized P/L.
+Saat posisi terdeteksi FULL closed (daily close-all atau manual — dicek di `CheckEntryCleanup`), `WriteTradeCsv()` dipanggil SEBELUM entry dihapus dari tracking:
+- Query exit info dari `HistorySelectByPosition(ticket)`: exit price/time, close reason (TP/SL/STOPOUT/OTHER dari `DEAL_REASON` — TP/SL praktis tidak pernah muncul lagi karena tidak ada order TP/SL), realized P/L (sum semua deal exit termasuk partial close sebelumnya).
 - Append 1 baris ke `MQL5/Files/AjipIDM_Trades_<symbol>_<magic>.csv` (dibuat otomatis kalau belum ada, header ditulis sekali).
 - Kolom: `Ticket,Dir,EntryTime,EntryPrice,ExitTime,ExitPrice,CloseReason,RealizedPnL,MFE,MAE`.
 
 Catatan:
-- Body-break invalidation (`InpInvalidationMode`) TIDAK menutup posisi — jadi tidak memicu CSV write. Row CSV hanya ditulis saat posisi BENAR-BENAR closed di broker (TP/SL/BE).
+- Partial close (`InpPartialClosePoints`) TIDAK menutup posisi sepenuhnya — ticket tetap ada, jadi tidak memicu CSV write. Row CSV hanya ditulis saat posisi BENAR-BENAR closed (volume habis).
 - Di Strategy Tester, file CSV ada di folder sandbox agent tester (`Tester/Agent-xxx/MQL5/Files/`), bukan folder terminal utama — kalau run optimization paralel, tiap agent punya file sendiri (tidak digabung otomatis).
 - `entryPrice`/`entryTime` diambil dari `POSITION_PRICE_OPEN`/`POSITION_TIME` saat `AddEntry` dipanggil (persis setelah `OpenTrade` sukses), bukan dari `bar.close` — jadi merefleksikan actual fill price broker.
 
@@ -83,40 +82,42 @@ Catatan:
 ## OnTick
 
 ```
-0. HTF context (SELALU aktif, gate TERPISAH dari LTF via g_htfLastBarTime,
+0. UpdateMfeMae (tiap tick) → CheckPartialClose (tiap tick, one-time per
+   posisi) → CheckDailyCloseAll (tiap tick, realized+floating vs
+   InpDailyMaxProfit/Loss — CloseAllPositions kalau tercapai)
+0.5 HTF context (SELALU aktif, gate TERPISAH dari LTF via g_htfLastBarTime,
    jalan tiap tick SEBELUM early-return LTF): detect new closed HTF bar →
-   UpdateHtfStructure → HtfCheckIdmTaken (idm taken? simpan sweep watch
-   g_htfSweepPrice/Dir, lalu reverse) → CheckHtfInvalidation (body break di
-   watch yang aktif? apply InpInvalidationMode portfolio-level pakai avg
-   entry / deepen watch kalau belum break)
-0.5 (jika InpUseAggressiveEntry) CheckAggressiveIdmTouch — per-tick, sebelum
+   UpdateHtfStructure → HtfCheckIdmTaken (idm taken? reverse structure HTF)
+0.7 (jika InpUseAggressiveEntry) CheckAggressiveIdmTouch — per-tick, sebelum
    early-return LTF: idm LTF tersentuh intrabar → reverse LTF early (pakai
-   last closed bar sbg boundary) → ComputeHtfEntryLevels → OpenTrade langsung
+   last closed bar sbg boundary) → HtfEntryAllowed → OpenTrade langsung
 1. Detect new closed LTF bar (via g_lastBarTime)
 2. UpdateStructure: pullback detection + simple structure build
-3. CheckEntryCleanup: untuk semua tracked entries — posisi yang sudah closed
-   (TP/SL hit) → log CSV → remove dari tracking. (Invalidation tidak lagi di
-   sini — lihat step 0, HTF-driven.)
+3. CheckEntryCleanup: untuk semua tracked entries — posisi yang BENAR-BENAR
+   closed (partial close tidak menghapus ticket) → log CSV → remove dari
+   tracking.
 4. CheckIdmTaken: cek idm taken LTF pada closed bar (entry decision, tidak berubah)
-   - Kalau lolos (no body break) → daily limit → ComputeHtfEntryLevels (prev-swing
-     body-break filter + TP HTF + equilibrium HTF + min TP points + SL dari RR) →
-     OpenTrade
+   - Kalau lolos (no body break) → daily limit → HtfEntryAllowed (prev-swing
+     body-break filter + reference swing HTF + equilibrium HTF + min points) →
+     OpenTrade (fixed lot, tanpa SL/TP)
 5. If entry: place MT5 order, AddEntry to tracking
 6. Multi-position — tidak ada batasan jumlah posisi
 ```
 
 ## Position Management
 
-- TP/SL: physical MT5 orders (broker manage). InpRR=0 → no SL.
-- Lot size: dari target_amount dan TP distance
-  ```
-  gainPerLot = (tpDistance / tickSize) * tickValue
-  lot = InpTargetAmount / gainPerLot
-  ```
-- Multi-position — tidak ada batasan jumlah posisi terbuka
-- Entry invalidation: HTF-driven, portfolio-level (bukan per-ticket) — lihat
-  concept.md § HTF-Referenced Entry Engine. InpInvalidationMode (DO_NOTHING
-  atau TP fixed points dari avg entry semua posisi yang arahnya cocok; tidak
-  close posisi).
-- Daily limit: InpDailyMaxProfit/InpDailyMaxLoss (0=disabled). Query MT5 history deals hari ini (filter symbol + magic). Skip new entries saat limit tercapai. Existing positions tetap di-manage broker (TP/SL/BE).
-- After TP/SL/BE hit → continue tracking untuk next signal
+- Tidak ada TP/SL sama sekali — order selalu dibuka dengan SL=0, TP=0.
+- Lot size: fixed, `InpFixedLot` untuk setiap entry (tidak dihitung dari target profit).
+- Multi-position — tidak ada batasan jumlah posisi terbuka.
+- Partial close: one-time per posisi, tiap tick via `CheckPartialClose` — begitu
+  floating profit posisi >= `InpPartialClosePoints`, tutup `InpPartialClosePercent`
+  dari volumenya (`PositionClosePartial`), sisanya tetap open tanpa SL/TP.
+  Di-skip kalau closeVolume atau remainder di bawah `SYMBOL_VOLUME_MIN` broker.
+- Daily close-all: `InpDailyMaxProfit`/`InpDailyMaxLoss` (0=disabled). Tiap tick,
+  `CheckDailyCloseAll` jumlah `GetDailyPnL()` (realized) + `GetFloatingPnL()`
+  (floating semua posisi open) — begitu nyentuh target/loss, `CloseAllPositions()`
+  menutup SEMUA posisi (symbol+magic ini). Setelah itu `DailyLimitReached()`
+  (realized-only) otomatis skip entry baru untuk sisa hari itu.
+- Tidak ada mekanisme invalidation per-struktur lagi (mekanisme HTF body-break
+  invalidation versi TP/SL sebelumnya sudah dihapus di varian ini) — exit
+  murni dari partial close + daily close-all.

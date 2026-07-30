@@ -65,9 +65,10 @@ bool           g_idmTaken = false; // idm has been taken this cycle
 // starts forming (its rates[0].time differs), no manual reset needed.
 datetime       g_aggressiveFiredBarTime = 0;
 
-// Entry tracking (multi-position, per-ticket) — bookkeeping for MFE/MAE and
-// CSV logging. Invalidation itself is HTF-driven and portfolio-level now
-// (see g_htfSweepPrice/g_htfSweepDir below), not per-ticket.
+// Entry tracking (multi-position, per-ticket) — bookkeeping for MFE/MAE,
+// partial-close state, and CSV logging. No SL/TP and no per-ticket
+// invalidation in this variant — positions live until partial-close and/or
+// the daily target/loss close-all (see AjipIDM_Trade.mqh/AjipIDM_Entry.mqh).
 struct EntryTracker
   {
    ulong    ticket;         // position ticket
@@ -76,14 +77,15 @@ struct EntryTracker
    datetime entryTime;      // POSITION_TIME at the time of AddEntry
    double   mfe;            // Max Favorable Excursion — best POSITION_PROFIT seen ($)
    double   mae;            // Max Adverse Excursion — worst POSITION_PROFIT seen ($)
+   bool     partialClosed;  // true once the one-time partial close has fired
   };
 EntryTracker  g_entries[];
 
 // Bar tracking
 datetime       g_lastBarTime = 0;  // for new-bar detection within OnTick
 
-// HTF context — structure/idm engine, always active (drives TP, equilibrium
-// filter, and invalidation for every entry; see AjipIDM_HtfContext.mqh).
+// HTF context — structure/idm engine, always active (drives the equilibrium
+// filter for every entry; see AjipIDM_HtfContext.mqh).
 ENUM_TREND     g_htfTrend          = TREND_NONE;
 Swing          g_htfSwings[];
 ENUM_PHASE     g_htfPhase;
@@ -95,18 +97,9 @@ double         g_htfIdmPrice       = 0.0;
 bool           g_htfIdmTaken       = false;
 datetime       g_htfLastBarTime    = 0;
 
-// HTF-driven invalidation watch — level + direction being watched since the
-// last HTF idm-taken event. dir=0 means nothing currently being watched.
-// dir=1 watches BUY-side positions (HTF UP structure's support just swept),
-// dir=-1 watches SELL-side positions. Portfolio-level, not per-ticket.
-double         g_htfSweepPrice     = 0.0;
-int            g_htfSweepDir       = 0;
-
 // Symbol info cache
 int            g_digits;
 double         g_point;
-double         g_tickValue;
-double         g_tickSize;
 double         g_volMin, g_volMax, g_volStep;
 
 #endif // AJIPIDM_GLOBALS_MQH

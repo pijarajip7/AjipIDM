@@ -4,13 +4,11 @@
 // HTF CONTEXT — trimmed structure/idm engine for the higher timeframe.
 // Ported from AjipIDM_Pullback/Structure/Reversal/Entry/Core.mqh, same
 // rules, operating on g_htf* globals + InpHtfTimeframe. Always active
-// (not optional) — drives TP, the equilibrium/discount filter, and
-// invalidation for every entry (see AjipIDM_Entry.mqh: ComputeHtfEntryLevels,
-// CheckHtfInvalidation). This engine itself never places trades or checks
-// daily limits directly — it only tracks structure/idm and, on its own
-// idm-taken event, records the level being watched (g_htfSweepPrice/Dir)
-// for CheckHtfInvalidation to act on. It also draws its own swing/idm
-// lines (DrawHtfSwings, own object prefix) for visualization.
+// (not optional) — drives the equilibrium/discount gating filter for every
+// entry (see AjipIDM_Entry.mqh: HtfEntryAllowed). This engine itself never
+// places trades or checks daily limits directly — it only tracks
+// structure/idm. It also draws its own swing/idm lines (DrawHtfSwings, own
+// object prefix) for visualization.
 //==================================================================
 
 // HTF DETECT PULLBACK — port of DetectPullback (AjipIDM_Pullback.mqh)
@@ -33,7 +31,7 @@ void HtfDetectPullback(MqlRates &bar)
       // outside bar. Promote the old outsideBar into base (it now plays the
       // role the pre-outside base played for it), extend outsideBar to this
       // bar's own extremes, keep waiting. Same deepening-watch idea as
-      // HtfPrevSwingBodyBroken / CheckHtfInvalidation.
+      // HtfPrevSwingBodyBroken.
       if(bar.high > g_htfOutsideBar.high && bar.low < g_htfOutsideBar.low)
         {
          g_htfBase = g_htfOutsideBar;
@@ -577,10 +575,9 @@ void HtfRebuildStructure(datetime originTime, datetime endTime)
 
 //==================================================================
 // HTF CHECK IDM TAKEN — structure/trend-flip port of CheckIdmTaken's taken
-// half, plus recording the sweep watch (g_htfSweepPrice/Dir) for
-// CheckHtfInvalidation. This function itself never touches trades directly
-// — only sets state that AjipIDM_Entry.mqh's CheckHtfInvalidation/
-// ApplyHtfInvalidation act on.
+// half. This function itself never touches trades — it only flips the HTF
+// structure/trend, which HtfEntryAllowed (AjipIDM_Entry.mqh) then reads for
+// the equilibrium gating filter.
 //==================================================================
 void HtfCheckIdmTaken(MqlRates &bar)
   {
@@ -604,16 +601,6 @@ void HtfCheckIdmTaken(MqlRates &bar)
 
    g_htfIdmTaken = true;
 
-   // Capture the level + direction being watched BEFORE Reverse flips
-   // g_htfTrend/g_htfIdmPrice to the new trend. dir=1 means this event
-   // threatens BUY-side LTF positions (HTF UP structure's support just
-   // got swept), dir=-1 threatens SELL-side positions. Overwrites any
-   // still-unresolved prior watch — the newest HTF event is what matters
-   // going forward. See CheckHtfInvalidation (AjipIDM_Entry.mqh) for the
-   // ongoing body-break check this feeds.
-   g_htfSweepPrice = g_htfIdmPrice;
-   g_htfSweepDir   = (g_htfTrend == TREND_UP) ? 1 : -1;
-
    PrintFormat("AjipIDM: HTF IDM TAKEN. Trend was %s, idm=%.5f, bar close=%.5f",
                TrendString(g_htfTrend), g_htfIdmPrice, bar.close);
 
@@ -624,9 +611,9 @@ void HtfCheckIdmTaken(MqlRates &bar)
   }
 
 //==================================================================
-// HTF TP GETTERS — port of GetLastSHDPrice/GetLastSLUPrice (LTF), scanning
-// g_htfSwings instead. Used as the structural TP for every entry now (see
-// ComputeHtfEntryLevels in AjipIDM_Entry.mqh) — TP is always HTF-referenced.
+// HTF SWING GETTERS — port of GetLastSHDPrice/GetLastSLUPrice (LTF), scanning
+// g_htfSwings instead. Used as the equilibrium reference for every entry
+// (see HtfEntryAllowed in AjipIDM_Entry.mqh) — always HTF-referenced.
 //==================================================================
 double GetLastHtfSHDPrice()
   {
@@ -651,24 +638,25 @@ double GetLastHtfSLUPrice()
   }
 
 //==================================================================
-// HTF PREV SWING BODY-BROKEN FILTER — structural quality check on the TP
-// swing (GetLastHtfSHDPrice/SLUPrice): was the SAME-TYPE swing right before
-// it confirmed by a candle CLOSE beyond its level (real break of structure),
-// or only wicked through (liquidity sweep, no close beyond)? Example
-// (uptrend): current TP = last SH swing (SHU_cur). SHU_prev = the SH swing
-// right before it. If no HTF bar between SHU_prev and SHU_cur ever CLOSED
-// above SHU_prev.price, SHU_prev was only swept, not body-broken — the leg
-// that produced SHU_cur is structurally weak, so skip the entry.
+// HTF PREV SWING BODY-BROKEN FILTER — structural quality check on the
+// reference swing (GetLastHtfSHDPrice/SLUPrice, used to derive equilibrium):
+// was the SAME-TYPE swing right before it confirmed by a candle CLOSE beyond
+// its level (real break of structure), or only wicked through (liquidity
+// sweep, no close beyond)? Example (uptrend): current reference = last SH
+// swing (SHU_cur). SHU_prev = the SH swing right before it. If no HTF bar
+// between SHU_prev and SHU_cur ever CLOSED above SHU_prev.price, SHU_prev
+// was only swept, not body-broken — the leg that produced SHU_cur is
+// structurally weak, so skip the entry.
 //
-// The level to beat RATCHETS as the leg unfolds (same "deepening watch"
-// pattern as g_htfSweepPrice in CheckHtfInvalidation): it starts at
-// SHU_prev.price, and each bar that wicks further without closing beyond
-// the current watch level pushes the watch level out to that bar's own
-// extreme. A later bar only counts as a real break if its CLOSE beats the
-// deepest extreme touched so far — reclaiming back above the ORIGINAL
-// SHU_prev level after the leg wicked even further out is NOT enough.
+// The level to beat RATCHETS as the leg unfolds ("deepening watch" pattern):
+// it starts at SHU_prev.price, and each bar that wicks further without
+// closing beyond the current watch level pushes the watch level out to that
+// bar's own extreme. A later bar only counts as a real break if its CLOSE
+// beats the deepest extreme touched so far — reclaiming back above the
+// ORIGINAL SHU_prev level after the leg wicked even further out is NOT
+// enough.
 //
-// Called from ComputeHtfEntryLevels (AjipIDM_Entry.mqh), isHigh = isBuy
+// Called from HtfEntryAllowed (AjipIDM_Entry.mqh), isHigh = isBuy
 // (BUY checks the previous SH, SELL checks the previous SL).
 // Fails OPEN (returns true / entry allowed) when there isn't enough swing
 // history yet (fresh reversal, only one same-type swing so far) — this is

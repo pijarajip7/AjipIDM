@@ -2,8 +2,10 @@
 //|                                                    AjipIDM.mq5   |
 //|  Inducement-centric SMC strategy for MT5.                        |
 //|  Simple structure (SL/SH) WITHOUT VH/VL.                         |
-//|  Entry decision = LTF idm taken + no body break → fade the sweep.|
-//|  TP, equilibrium (discount/premium), invalidation = HTF-referenced|
+//|  Entry decision = LTF idm taken + no body break → fade the sweep,|
+//|  gated by HTF equilibrium (discount/premium). Fixed lot, no      |
+//|  SL/TP — one-time partial close at InpPartialClosePoints, rest   |
+//|  rides until daily target/max loss closes ALL positions.         |
 //|  Running-max swing detection from 50 candles init.               |
 //+------------------------------------------------------------------+
 #property copyright   "AjipSMC"
@@ -17,22 +19,15 @@
 //==================================================================
 // INPUTS
 //==================================================================
-enum ENUM_INVALIDATION_MODE
-  {
-   INVALIDATION_DO_NOTHING, // Do nothing — leave TP/SL as is
-   INVALIDATION_FIXED_TP    // Move TP to entry + fixed TP points
-  };
-
 input ENUM_TIMEFRAMES InpTimeframe   = PERIOD_M1;  // Working timeframe
-input double          InpTargetAmount = 1000.0;      // Target profit per trade (USD)
-input double          InpRR          = 0.05;         // Risk:Reward (1=1:1, 2=1:2, 0=NO SL)
-input int             InpMinTpPoints = 300;           // Min TP distance in points (skip if below)
-input double          InpDailyMaxProfit = 10000.0;      // Daily max profit (0=disabled, stop new trades when reached)
-input double          InpDailyMaxLoss   = 10000.0;      // Daily max loss (0=disabled, stop new trades when reached)
-input ENUM_INVALIDATION_MODE InpInvalidationMode = INVALIDATION_FIXED_TP; // Invalidation TP action on body break (HTF-driven, portfolio-level)
-input int             InpInvalidationTpPoints = 50; // Fixed TP points (used when mode=FIXED_TP)
-input ENUM_TIMEFRAMES  InpHtfTimeframe = PERIOD_M5;  // Higher timeframe — drives TP, equilibrium filter, and invalidation for every entry
-input bool             InpUseAggressiveEntry = false; // Enter at idm level intrabar (before bar close); reverses structure early + sets real SL/TP immediately
+input double          InpFixedLot    = 0.10;         // Fixed lot size per entry (no SL/TP in this variant)
+input int             InpMinTpPoints = 300;           // Min HTF reference distance in points (setup-quality filter, skip if below)
+input double          InpDailyMaxProfit = 10000.0;      // Daily target — close ALL positions + stop new trades when reached (0=disabled)
+input double          InpDailyMaxLoss   = 10000.0;      // Daily max loss — close ALL positions + stop new trades when reached (0=disabled)
+input int             InpPartialClosePoints  = 1000; // Points profit to trigger one-time partial close (0=disabled)
+input double          InpPartialClosePercent = 50.0; // % of position volume to close at partial-close threshold
+input ENUM_TIMEFRAMES  InpHtfTimeframe = PERIOD_M5;  // Higher timeframe — drives equilibrium filter for every entry
+input bool             InpUseAggressiveEntry = false; // Enter at idm level intrabar (before bar close); reverses structure early
 input int             InpCandlesInit = 50;          // Lookback candles for initial trend
 input ulong           InpDeviation   = 10;          // Slippage (points)
 input long            InpMagicNumber = 99001;       // Magic number
@@ -65,8 +60,6 @@ int OnInit()
    // Cache symbol info
    g_digits    = (int)SymbolInfoInteger(_Symbol, SYMBOL_DIGITS);
    g_point     = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-   g_tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
-   g_tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
    g_volMin    = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
    g_volMax    = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
    g_volStep   = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
@@ -80,7 +73,7 @@ int OnInit()
       // Not fatal; OnTick will attempt rebuild
      }
 
-   // Build initial HTF context — always active, drives TP/equilibrium/invalidation.
+   // Build initial HTF context — always active, drives the equilibrium filter.
    if(!InitHtfStructure())
       Print("AjipIDM: InitHtfStructure failed — will retry on first tick");
 
@@ -107,11 +100,16 @@ void OnTick()
    // excursions are captured, not just the closed-bar extreme.
    UpdateMfeMae();
 
+   // Per-position one-time partial close + portfolio-level daily close-all —
+   // both react to floating P/L, so both run every tick, not gated by new-bar.
+   CheckPartialClose();
+   CheckDailyCloseAll();
+
    // HTF context — always active, own new-bar gate, runs every tick since
    // HTF bars close less often than LTF bars (must not be gated behind the
    // LTF early-return below, or an HTF closed-bar boundary could be
-   // silently skipped). Drives TP/equilibrium (ComputeHtfEntryLevels) and
-   // invalidation (CheckHtfInvalidation) for every entry.
+   // silently skipped). Drives the equilibrium filter (HtfEntryAllowed) for
+   // every entry.
    MqlRates htfRates[];
    ArraySetAsSeries(htfRates, true);
    if(CopyRates(_Symbol, InpHtfTimeframe, 0, 3, htfRates) >= 3
@@ -122,7 +120,6 @@ void OnTick()
       DrawHtfSwings();
       if(g_htfIdmPrice > 0.0)
          HtfCheckIdmTaken(htfRates[1]);
-      CheckHtfInvalidation(htfRates[1]);
      }
 
    // Aggressive entry — own per-tick check, runs every tick (not gated behind
@@ -149,7 +146,8 @@ void OnTick()
    UpdateStructure(rates[1]);
    if(InpDrawLines) DrawSwings();
 
-   // 2. Cleanup: log + untrack any position that closed (TP/SL hit)
+   // 2. Cleanup: log + untrack any position that closed (partial close
+   //    doesn't remove it — only a full close, via daily close-all)
    CheckEntryCleanup();
 
    // 3. Check idm taken on the just-closed bar

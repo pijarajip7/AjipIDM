@@ -1,43 +1,15 @@
 #ifndef AJIPIDM_TRADE_MQH
 #define AJIPIDM_TRADE_MQH
 
-// OPEN TRADE — returns ticket (0 = failed)
+// OPEN TRADE — fixed lot (InpFixedLot), no SL/TP. Returns ticket (0 = failed)
 //==================================================================
-ulong OpenTrade(bool isBuy, double entry, double slRaw, double tpRaw)
+ulong OpenTrade(bool isBuy, double entry)
   {
-   // Normalize prices
-   tpRaw = NormalizeDouble(tpRaw, g_digits);
-
-   // SL=0 means no SL (InpRR=0)
-   bool   hasSL = (slRaw > 0.0);
-   double slNorm = 0.0;
-   if(hasSL)
-      slNorm = NormalizeDouble(slRaw, g_digits);
-
-   // Validate TP direction
-   if(isBuy && tpRaw <= entry)
+   double lot = NormalizeDouble(InpFixedLot, 8);
+   if(lot < g_volMin || lot > g_volMax)
      {
-      PrintFormat("AjipIDM: BUY skip — TP %.5f <= entry %.5f", tpRaw, entry);
-      return(0);
-     }
-   if(!isBuy && tpRaw >= entry)
-     {
-      PrintFormat("AjipIDM: SELL skip — TP %.5f >= entry %.5f", tpRaw, entry);
-      return(0);
-     }
-
-   // Calculate lot size from target amount and TP distance
-   double tpDistance = MathAbs(tpRaw - entry);
-   if(tpDistance <= 0.0)
-     {
-      Print("AjipIDM: TP distance is zero — cannot calculate lot");
-      return(0);
-     }
-
-   double lot = CalcLot(tpDistance);
-   if(lot <= 0.0)
-     {
-      PrintFormat("AjipIDM: Lot calculation failed for tpDistance=%.5f", tpDistance);
+      PrintFormat("AjipIDM: %s skip — InpFixedLot %.2f outside broker range [%.2f, %.2f]",
+                  isBuy ? "BUY" : "SELL", lot, g_volMin, g_volMax);
       return(0);
      }
 
@@ -48,47 +20,24 @@ ulong OpenTrade(bool isBuy, double entry, double slRaw, double tpRaw)
    bool ok;
    if(isBuy)
      {
-      ok = trade.Buy(lot, _Symbol, tick.ask, slNorm, tpRaw, "AjipIDM BUY");
+      ok = trade.Buy(lot, _Symbol, tick.ask, 0.0, 0.0, "AjipIDM BUY");
      }
    else
      {
-      ok = trade.Sell(lot, _Symbol, tick.bid, slNorm, tpRaw, "AjipIDM SELL");
+      ok = trade.Sell(lot, _Symbol, tick.bid, 0.0, 0.0, "AjipIDM SELL");
      }
 
    if(ok)
      {
       ulong ticket = trade.ResultOrder();
-      PrintFormat("AjipIDM: %s opened. Ticket=%I64u, Lot=%.2f, Entry=%.5f, SL=%s, TP=%.5f",
-                  isBuy ? "BUY" : "SELL", ticket, lot, entry,
-                  hasSL ? DoubleToString(slNorm, g_digits) : "NONE", tpRaw);
+      PrintFormat("AjipIDM: %s opened. Ticket=%I64u, Lot=%.2f, Entry=%.5f, SL=NONE, TP=NONE",
+                  isBuy ? "BUY" : "SELL", ticket, lot, entry);
       return(ticket);
      }
 
    PrintFormat("AjipIDM: Order failed. retcode=%d (%s)",
                trade.ResultRetcode(), trade.ResultRetcodeDescription());
    return(0);
-  }
-
-//==================================================================
-// CALC LOT — from target profit and TP distance
-// gainPerLot = (tpDistance / tickSize) * tickValue
-// lot = targetAmount / gainPerLot
-//==================================================================
-double CalcLot(double tpDistance)
-  {
-   if(g_tickSize <= 0.0 || g_tickValue <= 0.0) return(0.0);
-
-   double gainPerLot = (tpDistance / g_tickSize) * g_tickValue;
-   if(gainPerLot <= 0.0) return(0.0);
-
-   double lot = InpTargetAmount / gainPerLot;
-
-   // Normalize to volume step
-   lot = MathFloor(lot / g_volStep) * g_volStep;
-   if(lot < g_volMin) return(0.0);
-   if(lot > g_volMax) lot = g_volMax;
-
-   return(NormalizeDouble(lot, 8));
   }
 
 //==================================================================
@@ -207,10 +156,52 @@ bool DailyLimitReached()
   }
 
 //==================================================================
+// GET FLOATING PNL — sum unrealized profit+swap of all OPEN positions
+// (this symbol + magic). Combined with GetDailyPnL() (realized) by
+// CheckDailyCloseAll to decide whether today's target/loss has been hit
+// even while positions are still running.
+//==================================================================
+double GetFloatingPnL()
+  {
+   double total = 0.0;
+   int    n     = PositionsTotal();
+   for(int i = 0; i < n; i++)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != InpMagicNumber) continue;
+
+      total += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+     }
+   return(total);
+  }
+
+//==================================================================
+// CLOSE ALL POSITIONS — this symbol + magic. Used by CheckDailyCloseAll
+// once the daily target/max loss is hit.
+//==================================================================
+void CloseAllPositions()
+  {
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != InpMagicNumber) continue;
+
+      if(!trade.PositionClose(ticket))
+         PrintFormat("AjipIDM: CloseAllPositions — failed to close ticket=%I64u, retcode=%d (%s)",
+                     ticket, trade.ResultRetcode(), trade.ResultRetcodeDescription());
+     }
+  }
+
+//==================================================================
 // WRITE TRADE CSV — append one closed-trade row (entry + exit + MFE/MAE)
 // to MQL5/Files/AjipIDM_Trades_<symbol>_<magic>.csv. Called once per
-// position from CheckEntryCleanup right when the position is
-// detected closed (TP/SL/BE hit).
+// position from CheckEntryCleanup right when the position is detected fully
+// closed (daily close-all or manual — sums every exit deal including any
+// prior partial close, so RealizedPnL covers the whole position).
 //==================================================================
 void WriteTradeCsv(const EntryTracker &e)
   {
