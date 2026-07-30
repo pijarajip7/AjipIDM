@@ -2,13 +2,15 @@
 #define AJIPIDM_PANEL_MQH
 
 // INFO PANEL — on-chart dashboard: current trend, HTF trend,
-// today/this-week/this-month realized P/L, and live open MFE/MAE (summed
-// across tracked open positions — updated every tick via UpdateMfeMae()
-// in AjipIDM_Entry.mqh). The panel itself still refreshes once per closed
-// LTF bar (same cadence as everything else in this EA — not a timer, so
-// behavior is identical live and in Strategy Tester). Uses g_panelPrefix,
-// distinct from g_objPrefix so DrawSwings()'s ObjectsDeleteAll doesn't
-// wipe it out.
+// today/this-week/this-month realized P/L, daily target/max-loss status
+// (ClassifyDailyStatus, same realized+floating total CheckDailyCloseAll
+// acts on — AjipIDM_Trade.mqh/AjipIDM_Entry.mqh), and live open MFE/MAE
+// (summed across tracked open positions — updated every tick via
+// UpdateMfeMae() in AjipIDM_Entry.mqh). The panel itself still refreshes
+// once per closed LTF bar (same cadence as everything else in this EA —
+// not a timer, so behavior is identical live and in Strategy Tester). Uses
+// g_panelPrefix, distinct from g_objPrefix so DrawSwings()'s
+// ObjectsDeleteAll doesn't wipe it out.
 //==================================================================
 
 color TrendColor(ENUM_TREND t)
@@ -22,6 +24,24 @@ color PnlColor(double v)
   {
    if(v > 0.0) return(clrLimeGreen);
    if(v < 0.0) return(clrTomato);
+   return(clrSilver);
+  }
+
+string DailyStatusText(ENUM_DAILY_STATUS s)
+  {
+   switch(s)
+     {
+      case DAILY_STATUS_TARGET_HIT:  return("TARGET HIT");
+      case DAILY_STATUS_MAXLOSS_HIT: return("MAX LOSS HIT");
+      case DAILY_STATUS_DISABLED:    return("disabled");
+      default:                       return("active");
+     }
+  }
+
+color DailyStatusColor(ENUM_DAILY_STATUS s)
+  {
+   if(s == DAILY_STATUS_TARGET_HIT)  return(clrLimeGreen);
+   if(s == DAILY_STATUS_MAXLOSS_HIT) return(clrTomato);
    return(clrSilver);
   }
 
@@ -48,7 +68,7 @@ void UpdatePanel()
    if(!InpShowPanel) return;
 
    const int lineH = 16;
-   const int lines = 8;
+   const int lines = 9;
    int y = 0;
 
    // Background box sized to fit the content
@@ -86,6 +106,12 @@ void UpdatePanel()
    PanelLabel(g_panelPrefix + "Week", y, StringFormat("Week P/L:  %.2f", weekPnl), PnlColor(weekPnl));
    y += lineH;
    PanelLabel(g_panelPrefix + "Month", y, StringFormat("Month P/L: %.2f", monthPnl), PnlColor(monthPnl));
+   y += lineH;
+
+   // Daily target/max-loss status — realized (todayPnl, already computed
+   // above) + floating, same total CheckDailyCloseAll acts on.
+   ENUM_DAILY_STATUS dailyStatus = ClassifyDailyStatus(todayPnl + GetFloatingPnL());
+   PanelLabel(g_panelPrefix + "DailyStatus", y, "Daily:     " + DailyStatusText(dailyStatus), DailyStatusColor(dailyStatus));
    y += lineH;
 
    // Open MFE/MAE — summed across all currently tracked open positions

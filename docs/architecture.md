@@ -36,11 +36,12 @@ HTF Trend: UP / DOWN / NONE     (HTF context selalu aktif — bukan lagi toggle)
 Today P/L: <realized, deals hari ini>
 Week P/L:  <realized, sejak Senin 00:00>
 Month P/L: <realized, sejak tanggal 1 00:00>
+Daily:     active / disabled / TARGET HIT / MAX LOSS HIT
 Open MFE:  <sum floating best-case, semua posisi open>
 Open MAE:  <sum floating worst-case, semua posisi open>
 ```
 
-P/L dihitung dari realized deals (symbol + magic number sama), sama persis definisinya dengan `GetDailyPnL` yang dipakai daily-limit — BUKAN floating/unrealized PnL posisi terbuka. Object chart pakai prefix `g_panelPrefix` ("AjipIDMPanel_"), terpisah dari `g_objPrefix` ("AjipIDM_") supaya tidak ke-wipe oleh `ObjectsDeleteAll` di `DrawSwings()`.
+P/L (Today/Week/Month) dihitung dari realized deals (symbol + magic number sama) — BUKAN floating/unrealized PnL posisi terbuka. Baris `Daily` beda: itu status dari `ClassifyDailyStatus(todayPnl + GetFloatingPnL())` — realized + floating, TOTAL YANG SAMA dipakai `CheckDailyCloseAll` buat memutuskan close-all, jadi bisa lebih tinggi/rendah dari `Today P/L` kalau ada floating besar. `disabled` kalau `InpDailyMaxProfit`/`InpDailyMaxLoss` keduanya 0. Object chart pakai prefix `g_panelPrefix` ("AjipIDMPanel_"), terpisah dari `g_objPrefix` ("AjipIDM_") supaya tidak ke-wipe oleh `ObjectsDeleteAll` di `DrawSwings()`.
 
 Open MFE/MAE beda dari baris P/L di atas: ini floating (bukan realized), disum dari `g_entries[].mfe`/`.mae` — lihat [MFE/MAE Tracking](#mfemae-tracking) di bawah.
 

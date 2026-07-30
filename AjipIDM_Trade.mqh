@@ -178,6 +178,20 @@ double GetFloatingPnL()
   }
 
 //==================================================================
+// CLASSIFY DAILY STATUS — given a realized+floating total, decide where it
+// sits relative to InpDailyMaxProfit/InpDailyMaxLoss. Shared by
+// CheckDailyCloseAll (AjipIDM_Entry.mqh, acts on it) and UpdatePanel
+// (AjipIDM_Panel.mqh, just displays it) so both agree on the same thresholds.
+//==================================================================
+ENUM_DAILY_STATUS ClassifyDailyStatus(double total)
+  {
+   if(InpDailyMaxProfit <= 0.0 && InpDailyMaxLoss <= 0.0) return(DAILY_STATUS_DISABLED);
+   if(InpDailyMaxProfit > 0.0 && total >= InpDailyMaxProfit) return(DAILY_STATUS_TARGET_HIT);
+   if(InpDailyMaxLoss   > 0.0 && total <= -InpDailyMaxLoss)  return(DAILY_STATUS_MAXLOSS_HIT);
+   return(DAILY_STATUS_ACTIVE);
+  }
+
+//==================================================================
 // CLOSE ALL POSITIONS — this symbol + magic. Used by CheckDailyCloseAll
 // once the daily target/max loss is hit.
 //==================================================================

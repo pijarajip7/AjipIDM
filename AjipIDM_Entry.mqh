@@ -117,17 +117,16 @@ void CheckPartialClose()
 //==================================================================
 void CheckDailyCloseAll()
   {
-   if(InpDailyMaxProfit <= 0.0 && InpDailyMaxLoss <= 0.0) return;
+   double            total  = GetDailyPnL() + GetFloatingPnL();
+   ENUM_DAILY_STATUS status = ClassifyDailyStatus(total);
 
-   double total = GetDailyPnL() + GetFloatingPnL();
-
-   if(InpDailyMaxProfit > 0.0 && total >= InpDailyMaxProfit)
+   if(status == DAILY_STATUS_TARGET_HIT)
      {
       PrintFormat("AjipIDM: Daily TARGET reached (%.2f >= %.2f) — closing all positions.",
                   total, InpDailyMaxProfit);
       CloseAllPositions();
      }
-   else if(InpDailyMaxLoss > 0.0 && total <= -InpDailyMaxLoss)
+   else if(status == DAILY_STATUS_MAXLOSS_HIT)
      {
       PrintFormat("AjipIDM: Daily MAX LOSS reached (%.2f <= -%.2f) — closing all positions.",
                   total, InpDailyMaxLoss);

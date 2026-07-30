@@ -10,6 +10,17 @@ enum ENUM_TREND
    TREND_DOWN  = -1
   };
 
+// Daily target/max-loss status — classified from realized+floating P/L
+// (see ClassifyDailyStatus, AjipIDM_Trade.mqh). Shared by CheckDailyCloseAll
+// (AjipIDM_Entry.mqh) and the info panel (AjipIDM_Panel.mqh).
+enum ENUM_DAILY_STATUS
+  {
+   DAILY_STATUS_DISABLED,     // InpDailyMaxProfit and InpDailyMaxLoss both <= 0
+   DAILY_STATUS_ACTIVE,       // enabled, neither threshold reached yet
+   DAILY_STATUS_TARGET_HIT,   // InpDailyMaxProfit reached
+   DAILY_STATUS_MAXLOSS_HIT   // InpDailyMaxLoss reached
+  };
+
 // A committed swing point in simple structure
 struct Swing
   {
