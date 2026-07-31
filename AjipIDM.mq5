@@ -21,18 +21,18 @@
 // INPUTS
 //==================================================================
 input ENUM_TIMEFRAMES InpTimeframe   = PERIOD_M1;  // Working timeframe
-input double          InpFixedLot    = 0.10;         // Fixed lot size per entry (no SL/TP in this variant)
-input int             InpMinTpPoints = 300;           // Min HTF reference distance in points (setup-quality filter, skip if below)
-input double          InpDailyMaxProfit = 10000.0;      // Daily target — close ALL positions + stop new trades for the REST OF THE DAY (0=disabled)
-input double          InpDailyMaxLoss   = 10000.0;      // Daily max loss — close ALL positions + stop new trades for the REST OF THE DAY (0=disabled)
-input double          InpBatchMaxProfit = 0.0;          // Batch target — close current batch only, new entries still allowed right after (0=disabled)
+input double          InpFixedLot    = 0.02;         // Fixed lot size per entry (no SL/TP in this variant)
+input int             InpMinTpPoints = 1000;           // Min HTF reference distance in points (setup-quality filter, skip if below)
+input double          InpDailyMaxProfit = 4000.0;      // Daily target — close ALL positions + stop new trades for the REST OF THE DAY (0=disabled)
+input double          InpDailyMaxLoss   = 300000.0;      // Daily max loss — close ALL positions + stop new trades for the REST OF THE DAY (0=disabled)
+input double          InpBatchMaxProfit = 2000.0;          // Batch target — close current batch only, new entries still allowed right after (0=disabled)
 input double          InpBatchMaxLoss   = 0.0;          // Batch max loss — close current batch only, new entries still allowed right after (0=disabled)
-input string          InpSessionStart = "00:00";        // Session start (server time HH:MM) — entries only inside session; start==end disables filter
-input string          InpSessionEnd   = "00:00";        // Session end (server time HH:MM) — outside session: no new entries; if PnL > 0, close ALL positions
-input int             InpPartialClosePoints  = 1000; // Points profit to trigger one-time partial close (0=disabled)
+input string          InpSessionStart = "02:00";        // Session start (server time HH:MM) — entries only inside session; start==end disables filter
+input string          InpSessionEnd   = "20:00";        // Session end (server time HH:MM) — outside session: no new entries; if PnL > 0, close ALL positions
+input int             InpPartialClosePoints  = 500; // Points profit to trigger one-time partial close (0=disabled)
 input double          InpPartialClosePercent = 50.0; // % of position volume to close at partial-close threshold
-input ENUM_TIMEFRAMES  InpHtfTimeframe = PERIOD_M5;  // Higher timeframe — drives equilibrium filter for every entry
-input bool             InpUseAggressiveEntry = false; // Enter at idm level intrabar (before bar close); reverses structure early
+input ENUM_TIMEFRAMES  InpHtfTimeframe = PERIOD_M15;  // Higher timeframe — drives equilibrium filter for every entry
+input bool             InpUseAggressiveEntry = true; // Enter at idm level intrabar (before bar close); reverses structure early
 input int             InpCandlesInit = 50;          // Lookback candles for initial trend
 input ulong           InpDeviation   = 10;          // Slippage (points)
 input long            InpMagicNumber = 99001;       // Magic number
@@ -40,8 +40,8 @@ input bool            InpDrawLines   = true;        // Draw structure lines on c
 input int             InpMaxLines    = 500;         // Max trendline objects (cleanup)
 input bool             InpShowPanel   = true;             // Show info panel (trend + P/L)
 input ENUM_BASE_CORNER InpPanelCorner = CORNER_LEFT_UPPER; // Panel corner
-input int              InpPanelX      = 10;               // Panel X offset (px)
-input int              InpPanelY      = 20;               // Panel Y offset (px)
+input int              InpPanelX      = 20;               // Panel X offset (px)
+input int              InpPanelY      = 50;               // Panel Y offset (px)
 
 //--- AjipIDM module includes (order matters: globals first, then deps) ---
 #include "AjipIDM_Globals.mqh"
