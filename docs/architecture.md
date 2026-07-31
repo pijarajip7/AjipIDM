@@ -15,6 +15,8 @@ InpMaxLines     = 500            — Max trendline objects
 InpMinTpPoints  = 0              — Min HTF reference distance in points (setup-quality filter, 0=no filter)
 InpDailyMaxProfit = 0.0          — Daily target — close ALL positions + stop entry baru saat tercapai (0=disabled)
 InpDailyMaxLoss   = 0.0          — Daily max loss — close ALL positions + stop entry baru saat tercapai (0=disabled)
+InpSessionStart = "00:00"        — Session start (server time HH:MM) — entry baru hanya di dalam sesi
+InpSessionEnd   = "00:00"        — Session end (server time HH:MM) — start==end = tidak ada restriction (default)
 InpPartialClosePoints  = 1000    — Points profit untuk trigger one-time partial close (0=disabled)
 InpPartialClosePercent = 50.0    — % volume posisi yang ditutup di threshold partial close
 InpHtfTimeframe = PERIOD_H1      — Higher timeframe — SELALU aktif, sumber equilibrium filter (lihat concept.md)
@@ -37,11 +39,12 @@ Today P/L: <realized, deals hari ini>
 Week P/L:  <realized, sejak Senin 00:00>
 Month P/L: <realized, sejak tanggal 1 00:00>
 Daily:     active / disabled / TARGET HIT / MAX LOSS HIT
+Session:   OPEN / CLOSED / all day
 Open MFE:  <sum floating best-case, semua posisi open>
 Open MAE:  <sum floating worst-case, semua posisi open>
 ```
 
-P/L (Today/Week/Month) dihitung dari realized deals (symbol + magic number sama) — BUKAN floating/unrealized PnL posisi terbuka. Baris `Daily` beda: itu status dari `ClassifyDailyStatus(todayPnl + GetFloatingPnL())` — realized + floating, TOTAL YANG SAMA dipakai `CheckDailyCloseAll` buat memutuskan close-all, jadi bisa lebih tinggi/rendah dari `Today P/L` kalau ada floating besar. `disabled` kalau `InpDailyMaxProfit`/`InpDailyMaxLoss` keduanya 0. Object chart pakai prefix `g_panelPrefix` ("AjipIDMPanel_"), terpisah dari `g_objPrefix` ("AjipIDM_") supaya tidak ke-wipe oleh `ObjectsDeleteAll` di `DrawSwings()`.
+P/L (Today/Week/Month) dihitung dari realized deals (symbol + magic number sama) — BUKAN floating/unrealized PnL posisi terbuka. Baris `Daily` beda: itu status dari `ClassifyDailyStatus(todayPnl + GetFloatingPnL())` — realized + floating, TOTAL YANG SAMA dipakai `CheckDailyCloseAll` buat memutuskan close-all, jadi bisa lebih tinggi/rendah dari `Today P/L` kalau ada floating besar. `disabled` kalau `InpDailyMaxProfit`/`InpDailyMaxLoss` keduanya 0. Baris `Session` dari `InSession()` — `all day` kalau `InpSessionStart`==`InpSessionEnd` (filter nonaktif), sebaliknya `OPEN`/`CLOSED` sesuai jam server saat ini vs `InpSessionStart`/`InpSessionEnd`. Object chart pakai prefix `g_panelPrefix` ("AjipIDMPanel_"), terpisah dari `g_objPrefix` ("AjipIDM_") supaya tidak ke-wipe oleh `ObjectsDeleteAll` di `DrawSwings()`.
 
 Open MFE/MAE beda dari baris P/L di atas: ini floating (bukan realized), disum dari `g_entries[].mfe`/`.mae` — lihat [MFE/MAE Tracking](#mfemae-tracking) di bawah.
 
@@ -84,8 +87,9 @@ Catatan:
 
 ```
 0. UpdateMfeMae (tiap tick) → CheckPartialClose (tiap tick, one-time per
-   posisi) → CheckDailyCloseAll (tiap tick, realized+floating vs
-   InpDailyMaxProfit/Loss — CloseAllPositions kalau tercapai)
+   posisi, + breakeven SL) → CheckDailyCloseAll (tiap tick, realized+floating
+   vs InpDailyMaxProfit/Loss — CloseAllPositions kalau tercapai) →
+   CheckSessionCloseAll (tiap tick, di luar sesi + PnL > 0 → CloseAllPositions)
 0.5 HTF context (SELALU aktif, gate TERPISAH dari LTF via g_htfLastBarTime,
    jalan tiap tick SEBELUM early-return LTF): detect new closed HTF bar →
    UpdateHtfStructure → HtfCheckIdmTaken (idm taken? reverse structure HTF)
@@ -98,9 +102,9 @@ Catatan:
    closed (partial close tidak menghapus ticket) → log CSV → remove dari
    tracking.
 4. CheckIdmTaken: cek idm taken LTF pada closed bar (entry decision, tidak berubah)
-   - Kalau lolos (no body break) → daily limit → HtfEntryAllowed (prev-swing
-     body-break filter + reference swing HTF + equilibrium HTF + min points) →
-     OpenTrade (fixed lot, tanpa SL/TP)
+   - Kalau lolos (no body break) → daily limit → session filter (InSession) →
+     HtfEntryAllowed (prev-swing body-break filter + reference swing HTF +
+     equilibrium HTF + min points) → OpenTrade (fixed lot, tanpa SL/TP)
 5. If entry: place MT5 order, AddEntry to tracking
 6. Multi-position — tidak ada batasan jumlah posisi
 ```
@@ -123,6 +127,15 @@ Catatan:
   (floating semua posisi open) — begitu nyentuh target/loss, `CloseAllPositions()`
   menutup SEMUA posisi (symbol+magic ini). Setelah itu `DailyLimitReached()`
   (realized-only) otomatis skip entry baru untuk sisa hari itu.
+- Trading session: `InpSessionStart`/`InpSessionEnd` (server time `HH:MM`,
+  di-parse sekali di `OnInit` — start==end atau unparseable = filter
+  nonaktif). `InSession()` dicek sebagai entry gate (sejajar
+  `DailyLimitReached()`) di `CheckIdmTaken`/`CheckAggressiveIdmTouch` — di
+  luar sesi, entry baru di-skip. `CheckSessionCloseAll` (tiap tick): di luar
+  sesi DAN total (realized+floating) > 0 → `CloseAllPositions()`, walaupun
+  belum nyentuh `InpDailyMaxProfit` — supaya profit tidak "dibalikin" di
+  luar jam trading. Kalau PnL negatif saat di luar sesi, posisi TIDAK
+  dipaksa tutup.
 - Tidak ada mekanisme invalidation per-struktur lagi (mekanisme HTF body-break
   invalidation versi TP/SL sebelumnya sudah dihapus di varian ini) — exit
   murni dari partial close + daily close-all.

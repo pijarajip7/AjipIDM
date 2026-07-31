@@ -108,6 +108,13 @@ double         g_htfIdmPrice       = 0.0;
 bool           g_htfIdmTaken       = false;
 datetime       g_htfLastBarTime    = 0;
 
+// Trading session — parsed once in OnInit from InpSessionStart/InpSessionEnd
+// (server time HH:MM). g_sessionFilterEnabled=false means unrestricted
+// (start==end or unparseable input) — InSession() always returns true then.
+int            g_sessionStartMin      = 0;    // minutes since midnight
+int            g_sessionEndMin        = 0;    // minutes since midnight
+bool           g_sessionFilterEnabled = false;
+
 // Symbol info cache
 int            g_digits;
 double         g_point;

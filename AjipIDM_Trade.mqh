@@ -211,6 +211,65 @@ void CloseAllPositions()
   }
 
 //==================================================================
+// PARSE HH:MM — used once in OnInit to parse InpSessionStart/InpSessionEnd
+// into minutes-since-midnight. Returns false (outMinutes untouched) on any
+// malformed input.
+//==================================================================
+bool ParseHHMM(const string hhmm, int &outMinutes)
+  {
+   string parts[];
+   if(StringSplit(hhmm, ':', parts) != 2) return(false);
+
+   int h = (int)StringToInteger(parts[0]);
+   int m = (int)StringToInteger(parts[1]);
+   if(h < 0 || h > 23 || m < 0 || m > 59) return(false);
+
+   outMinutes = h * 60 + m;
+   return(true);
+  }
+
+//==================================================================
+// IN SESSION — is the current SERVER time (TimeCurrent(), same clock as
+// GetDailyPnL/daily reset) inside [g_sessionStartMin, g_sessionEndMin)?
+// g_sessionFilterEnabled=false (start==end or unparseable input, set in
+// OnInit) means unrestricted — always true. Handles sessions that wrap
+// midnight (e.g. 22:00-06:00) via start > end.
+//==================================================================
+bool InSession()
+  {
+   if(!g_sessionFilterEnabled) return(true);
+
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   int nowMin = dt.hour * 60 + dt.min;
+
+   if(g_sessionStartMin <= g_sessionEndMin)
+      return(nowMin >= g_sessionStartMin && nowMin < g_sessionEndMin);
+
+   return(nowMin >= g_sessionStartMin || nowMin < g_sessionEndMin); // wraps midnight
+  }
+
+//==================================================================
+// CHECK SESSION CLOSE ALL — outside the configured session with the book
+// in profit (realized+floating > 0): close everything so profit isn't
+// given back outside trading hours, even if InpDailyMaxProfit hasn't been
+// reached. Called every tick. No-op if the session filter is disabled.
+//==================================================================
+void CheckSessionCloseAll()
+  {
+   if(!g_sessionFilterEnabled) return;
+   if(InSession()) return;
+
+   double total = GetDailyPnL() + GetFloatingPnL();
+   if(total <= 0.0) return;
+
+   PrintFormat("AjipIDM: Outside session (%02d:%02d-%02d:%02d), PnL=%.2f > 0 — closing all positions.",
+               g_sessionStartMin / 60, g_sessionStartMin % 60,
+               g_sessionEndMin / 60, g_sessionEndMin % 60, total);
+   CloseAllPositions();
+  }
+
+//==================================================================
 // WRITE TRADE CSV — append one closed-trade row (entry + exit + MFE/MAE)
 // to MQL5/Files/AjipIDM_Trades_<symbol>_<magic>.csv. Called once per
 // position from CheckEntryCleanup right when the position is detected fully

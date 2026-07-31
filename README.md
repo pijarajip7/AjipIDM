@@ -1,6 +1,6 @@
 # AjipIDM — Progress & Documentation
 
-> Strategy: Inducement-centric SMC untuk MT5 EA. Simple structure (SL/SH) tanpa VH/VL. Entry = idm taken + no body break → fade, digating equilibrium HTF. Fixed lot, tanpa SL/TP di entry — exit via one-time partial close (points, lalu SL ke breakeven) + daily target/max loss close-all.
+> Strategy: Inducement-centric SMC untuk MT5 EA. Simple structure (SL/SH) tanpa VH/VL. Entry = idm taken + no body break → fade, digating equilibrium HTF + trading session (jam buka/tutup). Fixed lot, tanpa SL/TP di entry — exit via one-time partial close (points, lalu SL ke breakeven) + daily target/max loss close-all + profit-lock di luar sesi.
 
 ---
 

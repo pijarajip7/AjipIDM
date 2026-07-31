@@ -179,6 +179,31 @@ InpDailyMaxLoss   > 0 DAN total <= -InpDailyMaxLoss  → CloseAllPositions()
 
 `CheckEntryCleanup()` cuma tugas cleanup: deteksi posisi yang BENAR-BENAR closed (bukan partial) → log CSV → hapus dari tracking.
 
+## Trading Session (Jam Buka/Tutup)
+
+`InpSessionStart`/`InpSessionEnd` (server time, format `"HH:MM"`) membatasi KAPAN entry baru boleh dibuka, dan memicu profit-lock di luar jam tersebut:
+
+```
+Parse sekali di OnInit → g_sessionStartMin/g_sessionEndMin (menit sejak tengah malam).
+start == end (atau parse gagal) → g_sessionFilterEnabled = false (TIDAK ada
+  restriction sama sekali — InSession() selalu true, default kalau kedua
+  input dibiarkan "00:00").
+
+InSession() — tiap dipanggil, bandingkan TimeCurrent() (server time, SAMA
+  clock dengan GetDailyPnL) terhadap [start, end):
+  start <= end : nowMin >= start AND nowMin < end
+  start >  end : nowMin >= start OR  nowMin < end   (wrap tengah malam, mis. 22:00-06:00)
+```
+
+**Entry gate:** `InSession()` dicek di `CheckIdmTaken` (BUY/SELL) dan `CheckAggressiveIdmTouch`, sejajar dengan `DailyLimitReached()` — di luar sesi, entry baru di-skip (structure/reversal LTF tetap jalan normal, cuma `OpenTrade`-nya yang di-suppress).
+
+**Profit lock di luar sesi** (`CheckSessionCloseAll`, tiap tick):
+```
+Kalau !InSession() DAN total (realized+floating, SAMA formula dengan
+  CheckDailyCloseAll) > 0 → CloseAllPositions()
+```
+Ini yang menjawab kasus "PnL belum mencapai `InpDailyMaxProfit` tapi udah positif waktu jam tutup" — begitu keluar dari jendela sesi dan total masih positif (berapa pun besarnya, tidak perlu sampai `InpDailyMaxProfit`), semua posisi ditutup supaya profit tidak "dibalikin" di luar jam trading. Kalau PnL negatif saat itu, posisi TIDAK dipaksa tutup — tetap jalan (nunggu balik positif, kena `InpDailyMaxLoss`, atau ditutup manual).
+
 ## Aggressive Entry Mode (opsional)
 
 Default (**confirmation entry**): entry hanya jalan setelah bar close, memakai `bar.close` untuk memutuskan sweep (no body break) vs body break. Ini filter inti strategi — entry cuma terjadi kalau close sudah reclaim idm.

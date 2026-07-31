@@ -4,8 +4,9 @@
 // INFO PANEL — on-chart dashboard: current trend, HTF trend,
 // today/this-week/this-month realized P/L, daily target/max-loss status
 // (ClassifyDailyStatus, same realized+floating total CheckDailyCloseAll
-// acts on — AjipIDM_Trade.mqh/AjipIDM_Entry.mqh), and live open MFE/MAE
-// (summed across tracked open positions — updated every tick via
+// acts on), session status (InSession(), same gate used for new entries and
+// CheckSessionCloseAll — AjipIDM_Trade.mqh/AjipIDM_Entry.mqh), and live open
+// MFE/MAE (summed across tracked open positions — updated every tick via
 // UpdateMfeMae() in AjipIDM_Entry.mqh). The panel itself still refreshes
 // once per closed LTF bar (same cadence as everything else in this EA —
 // not a timer, so behavior is identical live and in Strategy Tester). Uses
@@ -45,6 +46,18 @@ color DailyStatusColor(ENUM_DAILY_STATUS s)
    return(clrSilver);
   }
 
+string SessionStatusText()
+  {
+   if(!g_sessionFilterEnabled) return("all day");
+   return(InSession() ? "OPEN" : "CLOSED");
+  }
+
+color SessionStatusColor()
+  {
+   if(!g_sessionFilterEnabled) return(clrSilver);
+   return(InSession() ? clrLimeGreen : clrTomato);
+  }
+
 void PanelLabel(string name, int yOffset, string text, color clr)
   {
    if(ObjectFind(0, name) < 0)
@@ -68,7 +81,7 @@ void UpdatePanel()
    if(!InpShowPanel) return;
 
    const int lineH = 16;
-   const int lines = 9;
+   const int lines = 10;
    int y = 0;
 
    // Background box sized to fit the content
@@ -112,6 +125,9 @@ void UpdatePanel()
    // above) + floating, same total CheckDailyCloseAll acts on.
    ENUM_DAILY_STATUS dailyStatus = ClassifyDailyStatus(todayPnl + GetFloatingPnL());
    PanelLabel(g_panelPrefix + "DailyStatus", y, "Daily:     " + DailyStatusText(dailyStatus), DailyStatusColor(dailyStatus));
+   y += lineH;
+
+   PanelLabel(g_panelPrefix + "Session", y, "Session:   " + SessionStatusText(), SessionStatusColor());
    y += lineH;
 
    // Open MFE/MAE — summed across all currently tracked open positions

@@ -25,6 +25,8 @@ input double          InpFixedLot    = 0.10;         // Fixed lot size per entry
 input int             InpMinTpPoints = 300;           // Min HTF reference distance in points (setup-quality filter, skip if below)
 input double          InpDailyMaxProfit = 10000.0;      // Daily target — close ALL positions + stop new trades when reached (0=disabled)
 input double          InpDailyMaxLoss   = 10000.0;      // Daily max loss — close ALL positions + stop new trades when reached (0=disabled)
+input string          InpSessionStart = "00:00";        // Session start (server time HH:MM) — entries only inside session; start==end disables filter
+input string          InpSessionEnd   = "00:00";        // Session end (server time HH:MM) — outside session: no new entries; if PnL > 0, close ALL positions
 input int             InpPartialClosePoints  = 1000; // Points profit to trigger one-time partial close (0=disabled)
 input double          InpPartialClosePercent = 50.0; // % of position volume to close at partial-close threshold
 input ENUM_TIMEFRAMES  InpHtfTimeframe = PERIOD_M5;  // Higher timeframe — drives equilibrium filter for every entry
@@ -67,6 +69,18 @@ int OnInit()
 
    if(g_volStep <= 0.0) g_volStep = g_volMin;
 
+   // Session filter — parse once. start==end or unparseable → disabled
+   // (InSession() always true, no restriction, no forced close-all).
+   int  startMin = 0, endMin = 0;
+   bool sessionParsedOk = ParseHHMM(InpSessionStart, startMin) && ParseHHMM(InpSessionEnd, endMin);
+   if(!sessionParsedOk)
+      PrintFormat("AjipIDM: Invalid InpSessionStart/InpSessionEnd (%s/%s) — session filter disabled.",
+                  InpSessionStart, InpSessionEnd);
+
+   g_sessionStartMin      = startMin;
+   g_sessionEndMin        = endMin;
+   g_sessionFilterEnabled = sessionParsedOk && (startMin != endMin);
+
    // Build initial structure from lookback candles
    if(!InitStructure())
      {
@@ -101,10 +115,12 @@ void OnTick()
    // excursions are captured, not just the closed-bar extreme.
    UpdateMfeMae();
 
-   // Per-position one-time partial close + portfolio-level daily close-all —
-   // both react to floating P/L, so both run every tick, not gated by new-bar.
+   // Per-position one-time partial close + portfolio-level daily/session
+   // close-all — all react to floating P/L, so all run every tick, not
+   // gated by new-bar.
    CheckPartialClose();
    CheckDailyCloseAll();
+   CheckSessionCloseAll();
 
    // HTF context — always active, own new-bar gate, runs every tick since
    // HTF bars close less often than LTF bars (must not be gated behind the
@@ -148,7 +164,7 @@ void OnTick()
    if(InpDrawLines) DrawSwings();
 
    // 2. Cleanup: log + untrack any position that closed (partial close
-   //    doesn't remove it — only a full close, via daily close-all)
+   //    doesn't remove it — only a full close, via daily/session close-all)
    CheckEntryCleanup();
 
    // 3. Check idm taken on the just-closed bar
