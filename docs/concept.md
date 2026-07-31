@@ -164,20 +164,31 @@ Kalau profitPoints >= InpPartialClosePoints DAN belum pernah partial-close:
   → tandai partialClosed = true (SATU KALI SAJA per posisi, tidak scaling —
     BE SL juga cuma di-set sekali di titik ini, tidak di-trail lebih lanjut)
 ```
-Sisa volume (`remainder`) jalan terus dengan SL di breakeven (tanpa TP), menunggu stop-out di entry, daily close-all, atau ditutup manual.
+Sisa volume (`remainder`) jalan terus dengan SL di breakeven (tanpa TP), menunggu stop-out di entry, batch/daily close-all, atau ditutup manual.
 
-## Daily Close-All (Target / Max Loss)
+## Daily Close-All (Target / Max Loss) — Blokir Entry Sisa Hari
 
-`CheckDailyCloseAll` (`AjipIDM_Entry.mqh`), jalan tiap tick:
+`CheckDailyCloseAll` (`AjipIDM_Trade.mqh`), jalan tiap tick:
 ```
-total = GetDailyPnL() (realized, closed deals hari ini) + GetFloatingPnL() (floating semua posisi open)
+total = GetDailyPnL() (realized, SEMUA batch hari ini) + GetFloatingPnL() (floating semua posisi open)
 
-InpDailyMaxProfit > 0 DAN total >= InpDailyMaxProfit → CloseAllPositions()
-InpDailyMaxLoss   > 0 DAN total <= -InpDailyMaxLoss  → CloseAllPositions()
+InpDailyMaxProfit > 0 DAN total >= InpDailyMaxProfit → CloseAllAndFlushBatch("DAILY_TARGET")
+InpDailyMaxLoss   > 0 DAN total <= -InpDailyMaxLoss  → CloseAllAndFlushBatch("DAILY_MAX_LOSS")
 ```
-`CloseAllPositions()` menutup SEMUA posisi (symbol + magic ini), termasuk yang sudah kena partial close sebagian. Floating diikutkan di `total` supaya trigger-nya reaktif — tidak perlu nunggu posisi ditutup manual dulu baru target/loss "kehitung". Setelah close-all, `DailyLimitReached()` (realized-only) otomatis memblokir entry baru untuk sisa hari itu.
+Setelah close-all, `DailyLimitReached()` (realized-only) otomatis memblokir entry baru untuk **SISA HARI ITU** — ini circuit breaker paling tinggi, terpisah dari batch limit di bawah.
 
-`CheckEntryCleanup()` cuma tugas cleanup: deteksi posisi yang BENAR-BENAR closed (bukan partial) → fold ke batch accumulator → hapus dari tracking. Report-nya sendiri (CSV per-setup, bukan per-posisi) — lihat [Batch CSV Report](architecture.md#batch-csv-report-per-setup) di architecture.md.
+## Batch Close-All (Target / Max Loss) — TIDAK Blokir Entry
+
+`CheckBatchCloseAll` (`AjipIDM_Trade.mqh`), jalan tiap tick, TERPISAH dari daily:
+```
+total = g_batchRealizedPnl (realized BATCH INI SAJA, bukan seluruh hari) + GetFloatingPnL()
+
+InpBatchMaxProfit > 0 DAN total >= InpBatchMaxProfit → CloseAllAndFlushBatch("BATCH_TARGET")
+InpBatchMaxLoss   > 0 DAN total <= -InpBatchMaxLoss  → CloseAllAndFlushBatch("BATCH_MAX_LOSS")
+```
+Bedanya sama Daily: batch limit CUMA nutup batch yang sedang berjalan — **tidak ada apa pun yang ngeblok entry baru** setelahnya (`DailyLimitReached()`/`InSession()` gak disentuh). Selama daily limit belum ikut kena, batch baru boleh langsung mulai lagi begitu ada sinyal entry berikutnya. Ini yang bikin **1 hari kalender bisa punya lebih dari 1 baris di batch CSV** — tiap kali batch limit kena, itu 1 baris, dan siklusnya bisa berulang berkali-kali dalam 1 hari selama daily limit belum tercapai.
+
+`CloseAllAndFlushBatch(reason)` (`AjipIDM_Trade.mqh`) yang benar-benar menutup posisi + nulis CSV, dipanggil dari kedua fungsi di atas maupun `CheckSessionCloseAll`. Ini dikerjakan SECARA ATOMIK (tutup + accumulate + tulis CSV + reset, satu pemanggilan) — bukan nunggu bar berikutnya — supaya entry baru (yang boleh langsung nyala lagi khusus buat batch limit) gak nyelip masuk sebelum batch lama beres di-flush. `CheckEntryCleanup()` (`AjipIDM_Entry.mqh`) cuma nangkep posisi yang closed DI LUAR close-all (mis. kena breakeven stop) — fold ke accumulator, gak pernah nulis CSV sendiri. Detail lengkap kolom CSV & flush mechanics — lihat [Batch CSV Report](architecture.md#batch-csv-report-per-setup) di architecture.md.
 
 ## Trading Session (Jam Buka/Tutup)
 
@@ -200,7 +211,7 @@ InSession() — tiap dipanggil, bandingkan TimeCurrent() (server time, SAMA
 **Profit lock di luar sesi** (`CheckSessionCloseAll`, tiap tick):
 ```
 Kalau !InSession() DAN total (realized+floating, SAMA formula dengan
-  CheckDailyCloseAll) > 0 → CloseAllPositions()
+  CheckDailyCloseAll) > 0 → CloseAllAndFlushBatch("SESSION_END")
 ```
 Ini yang menjawab kasus "PnL belum mencapai `InpDailyMaxProfit` tapi udah positif waktu jam tutup" — begitu keluar dari jendela sesi dan total masih positif (berapa pun besarnya, tidak perlu sampai `InpDailyMaxProfit`), semua posisi ditutup supaya profit tidak "dibalikin" di luar jam trading. Kalau PnL negatif saat itu, posisi TIDAK dipaksa tutup — tetap jalan (nunggu balik positif, kena `InpDailyMaxLoss`, atau ditutup manual).
 

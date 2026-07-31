@@ -157,9 +157,12 @@ bool DailyLimitReached()
 
 //==================================================================
 // GET FLOATING PNL — sum unrealized profit+swap of all OPEN positions
-// (this symbol + magic). Combined with GetDailyPnL() (realized) by
-// CheckDailyCloseAll to decide whether today's target/loss has been hit
-// even while positions are still running.
+// (this symbol + magic). Since CloseAllAndFlushBatch always closes/accounts
+// for EVERY tracked position before resetting, every currently-open
+// position belongs to the CURRENT (unflushed) batch — so this is also
+// exactly "the current batch's floating PnL", used by both
+// CheckDailyCloseAll (+ GetDailyPnL) and CheckBatchCloseAll
+// (+ g_batchRealizedPnl).
 //==================================================================
 double GetFloatingPnL()
   {
@@ -178,36 +181,19 @@ double GetFloatingPnL()
   }
 
 //==================================================================
-// CLASSIFY DAILY STATUS — given a realized+floating total, decide where it
-// sits relative to InpDailyMaxProfit/InpDailyMaxLoss. Shared by
-// CheckDailyCloseAll (AjipIDM_Entry.mqh, acts on it) and UpdatePanel
-// (AjipIDM_Panel.mqh, just displays it) so both agree on the same thresholds.
+// CLASSIFY LIMIT STATUS — given a total and a (maxProfit, maxLoss) pair,
+// decide where it sits. Generic: used for the daily-scoped check
+// (InpDailyMaxProfit/Loss, CheckDailyCloseAll — blocks new entries via
+// DailyLimitReached) AND the batch-scoped check (InpBatchMaxProfit/Loss,
+// CheckBatchCloseAll — does NOT block entries), plus UpdatePanel
+// (AjipIDM_Panel.mqh) for both.
 //==================================================================
-ENUM_DAILY_STATUS ClassifyDailyStatus(double total)
+ENUM_LIMIT_STATUS ClassifyLimitStatus(double total, double maxProfit, double maxLoss)
   {
-   if(InpDailyMaxProfit <= 0.0 && InpDailyMaxLoss <= 0.0) return(DAILY_STATUS_DISABLED);
-   if(InpDailyMaxProfit > 0.0 && total >= InpDailyMaxProfit) return(DAILY_STATUS_TARGET_HIT);
-   if(InpDailyMaxLoss   > 0.0 && total <= -InpDailyMaxLoss)  return(DAILY_STATUS_MAXLOSS_HIT);
-   return(DAILY_STATUS_ACTIVE);
-  }
-
-//==================================================================
-// CLOSE ALL POSITIONS — this symbol + magic. Used by CheckDailyCloseAll
-// once the daily target/max loss is hit.
-//==================================================================
-void CloseAllPositions()
-  {
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
-     {
-      ulong ticket = PositionGetTicket(i);
-      if(ticket == 0) continue;
-      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-      if(PositionGetInteger(POSITION_MAGIC) != InpMagicNumber) continue;
-
-      if(!trade.PositionClose(ticket))
-         PrintFormat("AjipIDM: CloseAllPositions — failed to close ticket=%I64u, retcode=%d (%s)",
-                     ticket, trade.ResultRetcode(), trade.ResultRetcodeDescription());
-     }
+   if(maxProfit <= 0.0 && maxLoss <= 0.0) return(LIMIT_STATUS_DISABLED);
+   if(maxProfit > 0.0 && total >= maxProfit) return(LIMIT_STATUS_TARGET_HIT);
+   if(maxLoss   > 0.0 && total <= -maxLoss)  return(LIMIT_STATUS_MAXLOSS_HIT);
+   return(LIMIT_STATUS_ACTIVE);
   }
 
 //==================================================================
@@ -266,18 +252,44 @@ void CheckSessionCloseAll()
    PrintFormat("AjipIDM: Outside session (%02d:%02d-%02d:%02d), PnL=%.2f > 0 — closing all positions.",
                g_sessionStartMin / 60, g_sessionStartMin % 60,
                g_sessionEndMin / 60, g_sessionEndMin % 60, total);
-   g_batchCloseReason  = "SESSION_END";
-   g_batchFlushPending = true;
-   CloseAllPositions();
+   CloseAllAndFlushBatch("SESSION_END");
+  }
+
+//==================================================================
+// CHECK BATCH CLOSE ALL — separate from CheckDailyCloseAll: this checks the
+// CURRENT BATCH's own total (g_batchRealizedPnl — positions already closed
+// this batch — + GetFloatingPnL(), which always belongs to the current
+// batch only, see GetFloatingPnL comment) against InpBatchMaxProfit/
+// InpBatchMaxLoss. Unlike the daily check, hitting this does NOT block new
+// entries — DailyLimitReached() is untouched, so a fresh batch can start
+// again right away (CloseAllAndFlushBatch resets synchronously, no race
+// with an entry opening on the same or a later tick). Called every tick.
+//==================================================================
+void CheckBatchCloseAll()
+  {
+   double            total  = g_batchRealizedPnl + GetFloatingPnL();
+   ENUM_LIMIT_STATUS status = ClassifyLimitStatus(total, InpBatchMaxProfit, InpBatchMaxLoss);
+
+   if(status == LIMIT_STATUS_TARGET_HIT)
+     {
+      PrintFormat("AjipIDM: Batch TARGET reached (%.2f >= %.2f) — closing current batch.",
+                  total, InpBatchMaxProfit);
+      CloseAllAndFlushBatch("BATCH_TARGET");
+     }
+   else if(status == LIMIT_STATUS_MAXLOSS_HIT)
+     {
+      PrintFormat("AjipIDM: Batch MAX LOSS reached (%.2f <= -%.2f) — closing current batch.",
+                  total, InpBatchMaxLoss);
+      CloseAllAndFlushBatch("BATCH_MAX_LOSS");
+     }
   }
 
 //==================================================================
 // ACCUMULATE BATCH STATS — fold one fully-closed position's outcome into
 // the current batch accumulator (realized PnL, win/loss/breakeven count,
-// MFE/MAE sums). Nothing is written to disk here — WriteBatchCsv flushes
-// the whole batch at once. Called from CheckEntryCleanup (AjipIDM_Entry.mqh)
-// right before RemoveEntry, for every closed ticket regardless of WHY it
-// closed (breakeven stop mid-day, or swept up by CloseAllPositions).
+// MFE/MAE sums). Nothing is written to disk here. Called from
+// CheckEntryCleanup (AjipIDM_Entry.mqh, stragglers like a breakeven stop)
+// and from CloseAllAndFlushBatch below (positions it just closed).
 //==================================================================
 void AccumulateBatchStats(const EntryTracker &e)
   {
@@ -311,13 +323,11 @@ void AccumulateBatchStats(const EntryTracker &e)
   }
 
 //==================================================================
-// WRITE BATCH CSV — append ONE row summarizing the just-completed batch
-// (every position closed since the last flush) to
-// MQL5/Files/AjipIDM_Batches_<symbol>_<magic>.csv. Called from
-// CheckEntryCleanup once CloseAllPositions has emptied tracking and
-// g_batchCount > 0 (skip writing an empty row if nothing was open).
+// WRITE BATCH CSV — append ONE row summarizing the just-completed batch to
+// MQL5/Files/AjipIDM_Batches_<symbol>_<magic>.csv. Called only from
+// CloseAllAndFlushBatch, only when g_batchCount > 0 (never an empty row).
 //==================================================================
-void WriteBatchCsv()
+void WriteBatchCsv(const string reason)
   {
    string fname  = "AjipIDM_Batches_" + _Symbol + "_" + IntegerToString(InpMagicNumber) + ".csv";
    bool   exists = FileIsExist(fname);
@@ -334,7 +344,7 @@ void WriteBatchCsv()
 
    string line = StringFormat("%s,%s,%d,%d,%d,%d,%.2f,%.2f,%.2f,%s,%s\r\n",
                                TimeToString(TimeCurrent(), TIME_DATE | TIME_MINUTES),
-                               g_batchCloseReason,
+                               reason,
                                g_batchCount, g_batchWins, g_batchLosses, g_batchBreakEven,
                                g_batchRealizedPnl, g_batchMfeSum, g_batchMaeSum,
                                TimeToString(g_batchFirstEntryTime, TIME_DATE | TIME_MINUTES),
@@ -343,12 +353,12 @@ void WriteBatchCsv()
    FileClose(handle);
 
    PrintFormat("AjipIDM: Batch CSV written. Reason=%s Positions=%d Wins=%d Losses=%d BE=%d TotalPnL=%.2f",
-               g_batchCloseReason, g_batchCount, g_batchWins, g_batchLosses, g_batchBreakEven, g_batchRealizedPnl);
+               reason, g_batchCount, g_batchWins, g_batchLosses, g_batchBreakEven, g_batchRealizedPnl);
   }
 
 //==================================================================
-// RESET BATCH ACCUMULATOR — clear every per-batch counter after a flush
-// (or a pending flush that turned out empty), ready for the next batch.
+// RESET BATCH ACCUMULATOR — clear every per-batch counter after a flush,
+// ready for the next batch.
 //==================================================================
 void ResetBatchAccumulator()
   {
@@ -362,7 +372,53 @@ void ResetBatchAccumulator()
    g_batchRealizedPnl    = 0.0;
    g_batchMfeSum         = 0.0;
    g_batchMaeSum         = 0.0;
-   g_batchCloseReason    = "";
+  }
+
+//==================================================================
+// CLOSE ALL AND FLUSH BATCH — this symbol + magic. Closes every open
+// position, then ATOMICALLY (no next-bar delay) folds each tracked entry's
+// outcome into the batch accumulator and removes it from tracking. If
+// everything closed successfully (tracking now empty), writes ONE batch
+// CSV row (skipped if g_batchCount==0 — nothing was open) and resets the
+// accumulator. If one or more closes FAILED (still open at broker), those
+// stay tracked and NOTHING is flushed yet — retried whichever trigger fires
+// next. Doing this synchronously (not deferred to CheckEntryCleanup on the
+// next closed bar) matters specifically for CheckBatchCloseAll: unlike
+// daily/session, a batch-limit hit does NOT block new entries, so without
+// this a new entry could open (AddEntry) on the same or a later tick BEFORE
+// the old batch's tracking was ever cleared/flushed — corrupting the
+// boundary between the old and new batch.
+//==================================================================
+void CloseAllAndFlushBatch(const string reason)
+  {
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != InpMagicNumber) continue;
+
+      if(!trade.PositionClose(ticket))
+         PrintFormat("AjipIDM: CloseAllAndFlushBatch — failed to close ticket=%I64u, retcode=%d (%s)",
+                     ticket, trade.ResultRetcode(), trade.ResultRetcodeDescription());
+     }
+
+   int n = ArraySize(g_entries);
+   for(int i = n - 1; i >= 0; i--)
+     {
+      if(PositionSelectByTicket(g_entries[i].ticket))
+         continue; // close failed above — stays tracked, retried next trigger
+
+      AccumulateBatchStats(g_entries[i]);
+      RemoveEntry(i);
+     }
+
+   if(ArraySize(g_entries) > 0)
+      return; // one or more stragglers still open — don't flush yet
+
+   if(g_batchCount > 0)
+      WriteBatchCsv(reason);
+   ResetBatchAccumulator();
   }
 
 //==================================================================

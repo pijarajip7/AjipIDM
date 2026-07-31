@@ -2,16 +2,17 @@
 #define AJIPIDM_PANEL_MQH
 
 // INFO PANEL — on-chart dashboard: current trend, HTF trend,
-// today/this-week/this-month realized P/L, daily target/max-loss status
-// (ClassifyDailyStatus, same realized+floating total CheckDailyCloseAll
-// acts on), session status (InSession(), same gate used for new entries and
-// CheckSessionCloseAll — AjipIDM_Trade.mqh/AjipIDM_Entry.mqh), and live open
-// MFE/MAE (summed across tracked open positions — updated every tick via
-// UpdateMfeMae() in AjipIDM_Entry.mqh). The panel itself still refreshes
-// once per closed LTF bar (same cadence as everything else in this EA —
-// not a timer, so behavior is identical live and in Strategy Tester). Uses
-// g_panelPrefix, distinct from g_objPrefix so DrawSwings()'s
-// ObjectsDeleteAll doesn't wipe it out.
+// today/this-week/this-month realized P/L, daily target/max-loss status AND
+// batch target/max-loss status (both via ClassifyLimitStatus — daily blocks
+// new entries when hit, batch doesn't, see AjipIDM_Trade.mqh/
+// AjipIDM_Entry.mqh), session status (InSession(), same gate used for new
+// entries and CheckSessionCloseAll), and live open MFE/MAE (summed across
+// tracked open positions — updated every tick via UpdateMfeMae() in
+// AjipIDM_Entry.mqh). The panel itself still refreshes once per closed LTF
+// bar (same cadence as everything else in this EA — not a timer, so
+// behavior is identical live and in Strategy Tester). Uses g_panelPrefix,
+// distinct from g_objPrefix so DrawSwings()'s ObjectsDeleteAll doesn't wipe
+// it out.
 //==================================================================
 
 color TrendColor(ENUM_TREND t)
@@ -28,21 +29,21 @@ color PnlColor(double v)
    return(clrSilver);
   }
 
-string DailyStatusText(ENUM_DAILY_STATUS s)
+string LimitStatusText(ENUM_LIMIT_STATUS s)
   {
    switch(s)
      {
-      case DAILY_STATUS_TARGET_HIT:  return("TARGET HIT");
-      case DAILY_STATUS_MAXLOSS_HIT: return("MAX LOSS HIT");
-      case DAILY_STATUS_DISABLED:    return("disabled");
+      case LIMIT_STATUS_TARGET_HIT:  return("TARGET HIT");
+      case LIMIT_STATUS_MAXLOSS_HIT: return("MAX LOSS HIT");
+      case LIMIT_STATUS_DISABLED:    return("disabled");
       default:                       return("active");
      }
   }
 
-color DailyStatusColor(ENUM_DAILY_STATUS s)
+color LimitStatusColor(ENUM_LIMIT_STATUS s)
   {
-   if(s == DAILY_STATUS_TARGET_HIT)  return(clrLimeGreen);
-   if(s == DAILY_STATUS_MAXLOSS_HIT) return(clrTomato);
+   if(s == LIMIT_STATUS_TARGET_HIT)  return(clrLimeGreen);
+   if(s == LIMIT_STATUS_MAXLOSS_HIT) return(clrTomato);
    return(clrSilver);
   }
 
@@ -81,7 +82,7 @@ void UpdatePanel()
    if(!InpShowPanel) return;
 
    const int lineH = 16;
-   const int lines = 10;
+   const int lines = 11;
    int y = 0;
 
    // Background box sized to fit the content
@@ -121,10 +122,20 @@ void UpdatePanel()
    PanelLabel(g_panelPrefix + "Month", y, StringFormat("Month P/L: %.2f", monthPnl), PnlColor(monthPnl));
    y += lineH;
 
+   double floatingPnl = GetFloatingPnL();
+
    // Daily target/max-loss status — realized (todayPnl, already computed
-   // above) + floating, same total CheckDailyCloseAll acts on.
-   ENUM_DAILY_STATUS dailyStatus = ClassifyDailyStatus(todayPnl + GetFloatingPnL());
-   PanelLabel(g_panelPrefix + "DailyStatus", y, "Daily:     " + DailyStatusText(dailyStatus), DailyStatusColor(dailyStatus));
+   // above) + floating, same total CheckDailyCloseAll acts on. Hitting this
+   // blocks new entries for the rest of the day.
+   ENUM_LIMIT_STATUS dailyStatus = ClassifyLimitStatus(todayPnl + floatingPnl, InpDailyMaxProfit, InpDailyMaxLoss);
+   PanelLabel(g_panelPrefix + "DailyStatus", y, "Daily:     " + LimitStatusText(dailyStatus), LimitStatusColor(dailyStatus));
+   y += lineH;
+
+   // Batch target/max-loss status — g_batchRealizedPnl (closed so far this
+   // batch) + floating, same total CheckBatchCloseAll acts on. Hitting this
+   // closes only the current batch — new entries are still allowed right after.
+   ENUM_LIMIT_STATUS batchStatus = ClassifyLimitStatus(g_batchRealizedPnl + floatingPnl, InpBatchMaxProfit, InpBatchMaxLoss);
+   PanelLabel(g_panelPrefix + "BatchStatus", y, "Batch:     " + LimitStatusText(batchStatus), LimitStatusColor(batchStatus));
    y += lineH;
 
    PanelLabel(g_panelPrefix + "Session", y, "Session:   " + SessionStatusText(), SessionStatusColor());

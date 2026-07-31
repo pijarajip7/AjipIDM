@@ -1,6 +1,6 @@
 # AjipIDM — Progress & Documentation
 
-> Strategy: Inducement-centric SMC untuk MT5 EA. Simple structure (SL/SH) tanpa VH/VL. Entry = idm taken + no body break → fade, digating equilibrium HTF + trading session (jam buka/tutup). Fixed lot, tanpa SL/TP di entry — exit via one-time partial close (points, lalu SL ke breakeven) + daily target/max loss close-all + profit-lock di luar sesi.
+> Strategy: Inducement-centric SMC untuk MT5 EA. Simple structure (SL/SH) tanpa VH/VL. Entry = idm taken + no body break → fade, digating equilibrium HTF + trading session (jam buka/tutup). Fixed lot, tanpa SL/TP di entry — exit via one-time partial close (points, lalu SL ke breakeven) + batch target/max loss (tutup batch saja, entry baru tetap boleh) + daily target/max loss (tutup semua, blokir entry sisa hari) + profit-lock di luar sesi.
 
 ---
 
@@ -8,7 +8,7 @@
 
 | Dokumen | Isi |
 |---------|-----|
-| [docs/concept.md](docs/concept.md) | Konsep inti, naming convention, idm definition, entry rules, HTF equilibrium gate, partial close, daily close-all, contoh full cycle |
+| [docs/concept.md](docs/concept.md) | Konsep inti, naming convention, idm definition, entry rules, HTF equilibrium gate, partial close, batch/daily close-all, trading session, contoh full cycle |
 | [docs/architecture.md](docs/architecture.md) | Input parameters, info panel, Init/OnTick flow, position management |
 | [docs/swing-detection.md](docs/swing-detection.md) | 2-stage swing detection algorithm (pullback + simple structure) |
 | [docs/bugfixes.md](docs/bugfixes.md) | Riwayat bug fix (10 round) |
@@ -39,7 +39,7 @@
 | `AjipIDM_Structure.mqh` | Stage 2: simple structure build (filter + premature update) |
 | `AjipIDM_Reversal.mqh` | ReverseToDowntrend/Up + RebuildStructure (live replay) |
 | `AjipIDM_Entry.mqh` | CheckIdmTaken + entry logic + partial close + daily close-all |
-| `AjipIDM_Trade.mqh` | OpenTrade (fixed lot), CloseAllPositions, session filter, swing helpers, batch CSV report |
+| `AjipIDM_Trade.mqh` | OpenTrade (fixed lot), CloseAllAndFlushBatch, batch/session close-all, session filter, swing helpers, batch CSV report |
 | `AjipIDM_Core.mqh` | InitStructure, OnTick dispatch |
 | `AjipIDM_HtfContext.mqh` | HTF trend filter — trimmed structure/idm engine (context-only, no trading) + chart drawing |
 | `AjipIDM_Panel.mqh` | On-chart info panel — trend, HTF trend, today/week/month realized P/L, live open MFE/MAE |

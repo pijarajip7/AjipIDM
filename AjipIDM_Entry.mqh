@@ -1,12 +1,12 @@
 #ifndef AJIPIDM_ENTRY_MQH
 #define AJIPIDM_ENTRY_MQH
 
-// CHECK ENTRY CLEANUP — detect positions that closed (partial-close leaves
-// the ticket open, only a full close removes it), fold each one's outcome
-// into the current batch accumulator, remove from tracking. Once tracking
-// is empty AND a flush is pending (set by CheckDailyCloseAll/
-// CheckSessionCloseAll right before they called CloseAllPositions), write
-// the ONE batch CSV row and reset the accumulator for the next batch.
+// CHECK ENTRY CLEANUP — detect positions that closed WITHOUT going through
+// CloseAllAndFlushBatch (partial-close leaves the ticket open — only a full
+// close removes it; e.g. a breakeven stop hit mid-batch). Folds each one's
+// outcome into the current batch accumulator and removes it from tracking.
+// Never writes CSV itself — the batch is only flushed by
+// CloseAllAndFlushBatch (AjipIDM_Trade.mqh), which does so atomically.
 //==================================================================
 void CheckEntryCleanup()
   {
@@ -18,14 +18,6 @@ void CheckEntryCleanup()
          AccumulateBatchStats(g_entries[i]);
          RemoveEntry(i);
         }
-     }
-
-   if(g_batchFlushPending && ArraySize(g_entries) == 0)
-     {
-      if(g_batchCount > 0)
-         WriteBatchCsv();
-      ResetBatchAccumulator();
-      g_batchFlushPending = false;
      }
   }
 
@@ -155,23 +147,19 @@ void CheckPartialClose()
 void CheckDailyCloseAll()
   {
    double            total  = GetDailyPnL() + GetFloatingPnL();
-   ENUM_DAILY_STATUS status = ClassifyDailyStatus(total);
+   ENUM_LIMIT_STATUS status = ClassifyLimitStatus(total, InpDailyMaxProfit, InpDailyMaxLoss);
 
-   if(status == DAILY_STATUS_TARGET_HIT)
+   if(status == LIMIT_STATUS_TARGET_HIT)
      {
       PrintFormat("AjipIDM: Daily TARGET reached (%.2f >= %.2f) — closing all positions.",
                   total, InpDailyMaxProfit);
-      g_batchCloseReason  = "DAILY_TARGET";
-      g_batchFlushPending = true;
-      CloseAllPositions();
+      CloseAllAndFlushBatch("DAILY_TARGET");
      }
-   else if(status == DAILY_STATUS_MAXLOSS_HIT)
+   else if(status == LIMIT_STATUS_MAXLOSS_HIT)
      {
       PrintFormat("AjipIDM: Daily MAX LOSS reached (%.2f <= -%.2f) — closing all positions.",
                   total, InpDailyMaxLoss);
-      g_batchCloseReason  = "DAILY_MAX_LOSS";
-      g_batchFlushPending = true;
-      CloseAllPositions();
+      CloseAllAndFlushBatch("DAILY_MAX_LOSS");
      }
   }
 

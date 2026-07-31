@@ -10,15 +10,18 @@ enum ENUM_TREND
    TREND_DOWN  = -1
   };
 
-// Daily target/max-loss status — classified from realized+floating P/L
-// (see ClassifyDailyStatus, AjipIDM_Trade.mqh). Shared by CheckDailyCloseAll
-// (AjipIDM_Entry.mqh) and the info panel (AjipIDM_Panel.mqh).
-enum ENUM_DAILY_STATUS
+// Target/max-loss status — classified from a total vs a (maxProfit, maxLoss)
+// pair by the generic ClassifyLimitStatus (AjipIDM_Trade.mqh). Reused for
+// BOTH the daily-scoped check (InpDailyMaxProfit/Loss, blocks new entries —
+// CheckDailyCloseAll) and the batch-scoped check (InpBatchMaxProfit/Loss,
+// does NOT block entries — CheckBatchCloseAll), plus the info panel
+// (AjipIDM_Panel.mqh) for both.
+enum ENUM_LIMIT_STATUS
   {
-   DAILY_STATUS_DISABLED,     // InpDailyMaxProfit and InpDailyMaxLoss both <= 0
-   DAILY_STATUS_ACTIVE,       // enabled, neither threshold reached yet
-   DAILY_STATUS_TARGET_HIT,   // InpDailyMaxProfit reached
-   DAILY_STATUS_MAXLOSS_HIT   // InpDailyMaxLoss reached
+   LIMIT_STATUS_DISABLED,     // both maxProfit/maxLoss <= 0
+   LIMIT_STATUS_ACTIVE,       // enabled, neither threshold reached yet
+   LIMIT_STATUS_TARGET_HIT,   // maxProfit reached
+   LIMIT_STATUS_MAXLOSS_HIT   // maxLoss reached
   };
 
 // A committed swing point in simple structure
@@ -93,12 +96,15 @@ struct EntryTracker
 EntryTracker  g_entries[];
 
 // Batch report accumulator — one CSV row per "setup" (every position closed
-// since the last flush), written once CloseAllPositions empties tracking
-// (daily target/max loss/session-end). Positions closed earlier in the
-// batch (e.g. breakeven stop after partial close) fold their stats in here
-// silently — nothing is written to disk until the whole batch is done. See
-// AccumulateBatchStats/WriteBatchCsv/ResetBatchAccumulator (AjipIDM_Trade.mqh)
-// and CheckEntryCleanup (AjipIDM_Entry.mqh).
+// since the last flush). Positions closed earlier in the batch (e.g.
+// breakeven stop after partial close) fold their stats in here silently —
+// nothing is written to disk until CloseAllAndFlushBatch (AjipIDM_Trade.mqh)
+// closes/accounts for everything and flushes ATOMICALLY (close + accumulate
+// + write + reset in one call, no next-bar delay) — called by
+// CheckBatchCloseAll/CheckDailyCloseAll/CheckSessionCloseAll. Positions that
+// close WITHOUT a close-all (e.g. breakeven stop) are folded in by
+// CheckEntryCleanup (AjipIDM_Entry.mqh) but don't trigger a flush by
+// themselves.
 bool           g_batchActive         = false; // true once this batch's first entry has opened
 datetime       g_batchFirstEntryTime = 0;
 datetime       g_batchLastEntryTime  = 0;
@@ -109,8 +115,6 @@ int            g_batchBreakEven      = 0;
 double         g_batchRealizedPnl    = 0.0;
 double         g_batchMfeSum         = 0.0;
 double         g_batchMaeSum         = 0.0;
-bool           g_batchFlushPending   = false; // set true right before a CloseAllPositions() call
-string         g_batchCloseReason    = "";    // DAILY_TARGET / DAILY_MAX_LOSS / SESSION_END
 
 // Bar tracking
 datetime       g_lastBarTime = 0;  // for new-bar detection within OnTick

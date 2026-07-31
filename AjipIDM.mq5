@@ -23,8 +23,10 @@
 input ENUM_TIMEFRAMES InpTimeframe   = PERIOD_M1;  // Working timeframe
 input double          InpFixedLot    = 0.10;         // Fixed lot size per entry (no SL/TP in this variant)
 input int             InpMinTpPoints = 300;           // Min HTF reference distance in points (setup-quality filter, skip if below)
-input double          InpDailyMaxProfit = 10000.0;      // Daily target — close ALL positions + stop new trades when reached (0=disabled)
-input double          InpDailyMaxLoss   = 10000.0;      // Daily max loss — close ALL positions + stop new trades when reached (0=disabled)
+input double          InpDailyMaxProfit = 10000.0;      // Daily target — close ALL positions + stop new trades for the REST OF THE DAY (0=disabled)
+input double          InpDailyMaxLoss   = 10000.0;      // Daily max loss — close ALL positions + stop new trades for the REST OF THE DAY (0=disabled)
+input double          InpBatchMaxProfit = 0.0;          // Batch target — close current batch only, new entries still allowed right after (0=disabled)
+input double          InpBatchMaxLoss   = 0.0;          // Batch max loss — close current batch only, new entries still allowed right after (0=disabled)
 input string          InpSessionStart = "00:00";        // Session start (server time HH:MM) — entries only inside session; start==end disables filter
 input string          InpSessionEnd   = "00:00";        // Session end (server time HH:MM) — outside session: no new entries; if PnL > 0, close ALL positions
 input int             InpPartialClosePoints  = 1000; // Points profit to trigger one-time partial close (0=disabled)
@@ -115,10 +117,13 @@ void OnTick()
    // excursions are captured, not just the closed-bar extreme.
    UpdateMfeMae();
 
-   // Per-position one-time partial close + portfolio-level daily/session
-   // close-all — all react to floating P/L, so all run every tick, not
-   // gated by new-bar.
+   // Per-position one-time partial close + portfolio-level batch/daily/
+   // session close-all — all react to floating P/L, so all run every tick,
+   // not gated by new-bar. Batch runs first (most granular, doesn't block
+   // entries); daily/session run after (broader, daily blocks entries for
+   // the rest of the day, session blocks until back in-session).
    CheckPartialClose();
+   CheckBatchCloseAll();
    CheckDailyCloseAll();
    CheckSessionCloseAll();
 
