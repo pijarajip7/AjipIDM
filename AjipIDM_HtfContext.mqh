@@ -409,7 +409,7 @@ void HtfReverseToDowntrend(MqlRates &takenBar)
 
    if(originPrice <= 0.0)
      {
-      Print("AjipIDM: HtfReverseToDowntrend — no origin found!");
+      if(InpEnableLog) Print("AjipIDM: HtfReverseToDowntrend — no origin found!");
       return;
      }
 
@@ -439,7 +439,7 @@ void HtfReverseToDowntrend(MqlRates &takenBar)
 
    HtfUpdateIdm();
 
-   PrintFormat("AjipIDM: HTF Reversed to DOWN. Origin=%.5f@%s, swings=%d",
+   if(InpEnableLog) PrintFormat("AjipIDM: HTF Reversed to DOWN. Origin=%.5f@%s, swings=%d",
                originPrice, TimeToString(originTime), ArraySize(g_htfSwings));
 
    DrawHtfSwings();
@@ -501,7 +501,7 @@ void HtfReverseToUptrend(MqlRates &takenBar)
 
    if(originPrice <= 0.0)
      {
-      Print("AjipIDM: HtfReverseToUptrend — no origin found!");
+      if(InpEnableLog) Print("AjipIDM: HtfReverseToUptrend — no origin found!");
       return;
      }
 
@@ -530,7 +530,7 @@ void HtfReverseToUptrend(MqlRates &takenBar)
 
    HtfUpdateIdm();
 
-   PrintFormat("AjipIDM: HTF Reversed to UP. Origin=%.5f@%s, swings=%d",
+   if(InpEnableLog) PrintFormat("AjipIDM: HTF Reversed to UP. Origin=%.5f@%s, swings=%d",
                originPrice, TimeToString(originTime), ArraySize(g_htfSwings));
 
    DrawHtfSwings();
@@ -547,7 +547,7 @@ void HtfRebuildStructure(datetime originTime, datetime endTime)
 
    if(originShift < 0 || endShift < 0 || originShift < endShift)
      {
-      PrintFormat("AjipIDM: HtfRebuildStructure bad shifts origin=%d end=%d",
+      if(InpEnableLog) PrintFormat("AjipIDM: HtfRebuildStructure bad shifts origin=%d end=%d",
                   originShift, endShift);
       return;
      }
@@ -601,7 +601,7 @@ void HtfCheckIdmTaken(MqlRates &bar)
 
    g_htfIdmTaken = true;
 
-   PrintFormat("AjipIDM: HTF IDM TAKEN. Trend was %s, idm=%.5f, bar close=%.5f",
+   if(InpEnableLog) PrintFormat("AjipIDM: HTF IDM TAKEN. Trend was %s, idm=%.5f, bar close=%.5f",
                TrendString(g_htfTrend), g_htfIdmPrice, bar.close);
 
    if(g_htfTrend == TREND_UP)
@@ -714,7 +714,7 @@ bool InitHtfStructure()
    int copied = CopyRates(_Symbol, InpHtfTimeframe, 0, InpCandlesInit, rates);
    if(copied < 10)
      {
-      PrintFormat("AjipIDM: Not enough HTF bars for init (%d)", copied);
+      if(InpEnableLog) PrintFormat("AjipIDM: Not enough HTF bars for init (%d)", copied);
       return(false);
      }
 
@@ -778,7 +778,7 @@ bool InitHtfStructure()
 
    g_htfLastBarTime = rates[copied - 2].time;
 
-   PrintFormat("AjipIDM: HTF structure built. Trend=%s, Swings=%d, idm=%.5f",
+   if(InpEnableLog) PrintFormat("AjipIDM: HTF structure built. Trend=%s, Swings=%d, idm=%.5f",
                TrendString(g_htfTrend), ArraySize(g_htfSwings), g_htfIdmPrice);
 
    DrawHtfSwings();

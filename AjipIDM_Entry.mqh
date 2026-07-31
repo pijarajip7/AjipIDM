@@ -106,19 +106,19 @@ void CheckPartialClose()
       double remainder = posVolume - closeVolume;
       if(closeVolume < g_volMin || remainder < g_volMin)
         {
-         PrintFormat("AjipIDM: Partial close skip — ticket=%I64u volume=%.2f too small to split at %.0f%%",
+         if(InpEnableLog) PrintFormat("AjipIDM: Partial close skip — ticket=%I64u volume=%.2f too small to split at %.0f%%",
                      g_entries[i].ticket, posVolume, InpPartialClosePercent);
          continue;
         }
 
       if(!trade.PositionClosePartial(g_entries[i].ticket, closeVolume))
         {
-         PrintFormat("AjipIDM: Partial close FAILED. Ticket=%I64u retcode=%d (%s)",
+         if(InpEnableLog) PrintFormat("AjipIDM: Partial close FAILED. Ticket=%I64u retcode=%d (%s)",
                      g_entries[i].ticket, trade.ResultRetcode(), trade.ResultRetcodeDescription());
          continue;
         }
 
-      PrintFormat("AjipIDM: Partial close done. Ticket=%I64u closed=%.2f remaining=%.2f (+%.0f pts)",
+      if(InpEnableLog) PrintFormat("AjipIDM: Partial close done. Ticket=%I64u closed=%.2f remaining=%.2f (+%.0f pts)",
                   g_entries[i].ticket, closeVolume, remainder, profitPoints);
 
       // Move the remainder's SL to breakeven — closeVolume changed the
@@ -129,10 +129,16 @@ void CheckPartialClose()
 
       double beSl = NormalizeDouble(entryPrice, g_digits);
       if(trade.PositionModify(g_entries[i].ticket, beSl, PositionGetDouble(POSITION_TP)))
-         PrintFormat("AjipIDM: Breakeven SL set. Ticket=%I64u SL=%.5f", g_entries[i].ticket, beSl);
+        {
+         if(InpEnableLog)
+            PrintFormat("AjipIDM: Breakeven SL set. Ticket=%I64u SL=%.5f", g_entries[i].ticket, beSl);
+        }
       else
-         PrintFormat("AjipIDM: Breakeven SL FAILED. Ticket=%I64u retcode=%d (%s)",
-                     g_entries[i].ticket, trade.ResultRetcode(), trade.ResultRetcodeDescription());
+        {
+         if(InpEnableLog)
+            PrintFormat("AjipIDM: Breakeven SL FAILED. Ticket=%I64u retcode=%d (%s)",
+                        g_entries[i].ticket, trade.ResultRetcode(), trade.ResultRetcodeDescription());
+        }
      }
   }
 
@@ -151,13 +157,13 @@ void CheckDailyCloseAll()
 
    if(status == LIMIT_STATUS_TARGET_HIT)
      {
-      PrintFormat("AjipIDM: Daily TARGET reached (%.2f >= %.2f) — closing all positions.",
+      if(InpEnableLog) PrintFormat("AjipIDM: Daily TARGET reached (%.2f >= %.2f) — closing all positions.",
                   total, InpDailyMaxProfit);
       CloseAllAndFlushBatch("DAILY_TARGET");
      }
    else if(status == LIMIT_STATUS_MAXLOSS_HIT)
      {
-      PrintFormat("AjipIDM: Daily MAX LOSS reached (%.2f <= -%.2f) — closing all positions.",
+      if(InpEnableLog) PrintFormat("AjipIDM: Daily MAX LOSS reached (%.2f <= -%.2f) — closing all positions.",
                   total, InpDailyMaxLoss);
       CloseAllAndFlushBatch("DAILY_MAX_LOSS");
      }
@@ -206,14 +212,14 @@ bool HtfEntryAllowed(bool isBuy, double entryPrice)
 
    if(g_htfTrend != (isBuy ? TREND_UP : TREND_DOWN))
      {
-      PrintFormat("AjipIDM: %s skip — HTF trend not aligned (HTF=%s, need %s)",
+      if(InpEnableLog) PrintFormat("AjipIDM: %s skip — HTF trend not aligned (HTF=%s, need %s)",
                   dirLabel, TrendString(g_htfTrend), isBuy ? "UP" : "DOWN");
       return false;
      }
 
    if(!HtfPrevSwingBodyBroken(isBuy))
      {
-      PrintFormat("AjipIDM: %s skip — HTF previous %s only swept, not body-broken",
+      if(InpEnableLog) PrintFormat("AjipIDM: %s skip — HTF previous %s only swept, not body-broken",
                   dirLabel, isBuy ? "SH" : "SL");
       return false;
      }
@@ -221,14 +227,14 @@ bool HtfEntryAllowed(bool isBuy, double entryPrice)
    double reference = isBuy ? GetLastHtfSHDPrice() : GetLastHtfSLUPrice();
    if(reference <= 0.0 || (isBuy ? reference <= entryPrice : reference >= entryPrice))
      {
-      PrintFormat("AjipIDM: %s skip — HTF reference swing invalid (ref=%.5f, entry=%.5f)",
+      if(InpEnableLog) PrintFormat("AjipIDM: %s skip — HTF reference swing invalid (ref=%.5f, entry=%.5f)",
                   dirLabel, reference, entryPrice);
       return false;
      }
 
    if(g_htfIdmPrice <= 0.0)
      {
-      PrintFormat("AjipIDM: %s skip — HTF idm not ready yet", dirLabel);
+      if(InpEnableLog) PrintFormat("AjipIDM: %s skip — HTF idm not ready yet", dirLabel);
       return false;
      }
 
@@ -236,7 +242,7 @@ bool HtfEntryAllowed(bool isBuy, double entryPrice)
    bool   wrongSide    = isBuy ? (entryPrice > equilibrium) : (entryPrice < equilibrium);
    if(wrongSide)
      {
-      PrintFormat("AjipIDM: %s skip — HTF equilibrium filter (entry=%.5f, eq=%.5f, htfIdm=%.5f, ref=%.5f)",
+      if(InpEnableLog) PrintFormat("AjipIDM: %s skip — HTF equilibrium filter (entry=%.5f, eq=%.5f, htfIdm=%.5f, ref=%.5f)",
                   dirLabel, entryPrice, equilibrium, g_htfIdmPrice, reference);
       return false;
      }
@@ -244,7 +250,7 @@ bool HtfEntryAllowed(bool isBuy, double entryPrice)
    double refPoints = MathAbs(reference - entryPrice) / g_point;
    if(InpMinTpPoints > 0 && refPoints < InpMinTpPoints)
      {
-      PrintFormat("AjipIDM: %s skip — reference distance %.0f pts < %d (ref=%.5f, entry=%.5f)",
+      if(InpEnableLog) PrintFormat("AjipIDM: %s skip — reference distance %.0f pts < %d (ref=%.5f, entry=%.5f)",
                   dirLabel, refPoints, InpMinTpPoints, reference, entryPrice);
       return false;
      }
@@ -298,7 +304,7 @@ void CheckAggressiveIdmTouch()
    double oldIdm = g_idmPrice; // LTF level being swept — for logging only
    g_aggressiveFiredBarTime = rates[0].time;
 
-   PrintFormat("AjipIDM: AGGRESSIVE %s idm touch @ %.5f — reversing early using last closed bar as boundary.",
+   if(InpEnableLog) PrintFormat("AjipIDM: AGGRESSIVE %s idm touch @ %.5f — reversing early using last closed bar as boundary.",
                isBuy ? "BUY" : "SELL", oldIdm);
 
    // rates[1] = last CLOSED bar (NOT the forming touch bar) — keeps origin
@@ -376,7 +382,7 @@ void CheckIdmTaken(MqlRates &bar)
    // normally below; only the entry itself is suppressed for this bar.
    bool alreadyAggressive = InpUseAggressiveEntry && (bar.time == g_aggressiveFiredBarTime);
 
-   PrintFormat("AjipIDM: IDM TAKEN. Trend was %s, idm=%.5f, bar close=%.5f",
+   if(InpEnableLog) PrintFormat("AjipIDM: IDM TAKEN. Trend was %s, idm=%.5f, bar close=%.5f",
                TrendString(g_trend), g_idmPrice, bar.close);
 
    if(g_trend == TREND_UP)
@@ -386,17 +392,17 @@ void CheckIdmTaken(MqlRates &bar)
 
       if(alreadyAggressive)
         {
-         PrintFormat("AjipIDM: BUY skip — already entered aggressively this bar.");
+         if(InpEnableLog) PrintFormat("AjipIDM: BUY skip — already entered aggressively this bar.");
         }
       else if(doEntry && entryBuy && !g_initMode)
         {
          if(DailyLimitReached())
            {
-            PrintFormat("AjipIDM: BUY skip — daily limit reached.");
+            if(InpEnableLog) PrintFormat("AjipIDM: BUY skip — daily limit reached.");
            }
          else if(!InSession())
            {
-            PrintFormat("AjipIDM: BUY skip — outside trading session.");
+            if(InpEnableLog) PrintFormat("AjipIDM: BUY skip — outside trading session.");
            }
          else if(HtfEntryAllowed(true, bar.close))
            {
@@ -414,17 +420,17 @@ void CheckIdmTaken(MqlRates &bar)
 
       if(alreadyAggressive)
         {
-         PrintFormat("AjipIDM: SELL skip — already entered aggressively this bar.");
+         if(InpEnableLog) PrintFormat("AjipIDM: SELL skip — already entered aggressively this bar.");
         }
       else if(doEntry && !entryBuy && !g_initMode)
         {
          if(DailyLimitReached())
            {
-            PrintFormat("AjipIDM: SELL skip — daily limit reached.");
+            if(InpEnableLog) PrintFormat("AjipIDM: SELL skip — daily limit reached.");
            }
          else if(!InSession())
            {
-            PrintFormat("AjipIDM: SELL skip — outside trading session.");
+            if(InpEnableLog) PrintFormat("AjipIDM: SELL skip — outside trading session.");
            }
          else if(HtfEntryAllowed(false, bar.close))
            {

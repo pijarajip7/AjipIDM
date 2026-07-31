@@ -8,7 +8,7 @@ ulong OpenTrade(bool isBuy, double entry)
    double lot = NormalizeDouble(InpFixedLot, 8);
    if(lot < g_volMin || lot > g_volMax)
      {
-      PrintFormat("AjipIDM: %s skip — InpFixedLot %.2f outside broker range [%.2f, %.2f]",
+      if(InpEnableLog) PrintFormat("AjipIDM: %s skip — InpFixedLot %.2f outside broker range [%.2f, %.2f]",
                   isBuy ? "BUY" : "SELL", lot, g_volMin, g_volMax);
       return(0);
      }
@@ -30,12 +30,12 @@ ulong OpenTrade(bool isBuy, double entry)
    if(ok)
      {
       ulong ticket = trade.ResultOrder();
-      PrintFormat("AjipIDM: %s opened. Ticket=%I64u, Lot=%.2f, Entry=%.5f, SL=NONE, TP=NONE",
+      if(InpEnableLog) PrintFormat("AjipIDM: %s opened. Ticket=%I64u, Lot=%.2f, Entry=%.5f, SL=NONE, TP=NONE",
                   isBuy ? "BUY" : "SELL", ticket, lot, entry);
       return(ticket);
      }
 
-   PrintFormat("AjipIDM: Order failed. retcode=%d (%s)",
+   if(InpEnableLog) PrintFormat("AjipIDM: Order failed. retcode=%d (%s)",
                trade.ResultRetcode(), trade.ResultRetcodeDescription());
    return(0);
   }
@@ -132,7 +132,7 @@ bool DailyLimitReached()
       datetime today = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
       if(lastProfitLog != today)
         {
-         PrintFormat("AjipIDM: Daily MAX PROFIT reached. PnL=%.2f >= %.2f. No new trades.",
+         if(InpEnableLog) PrintFormat("AjipIDM: Daily MAX PROFIT reached. PnL=%.2f >= %.2f. No new trades.",
                      pnl, InpDailyMaxProfit);
          lastProfitLog = today;
         }
@@ -145,7 +145,7 @@ bool DailyLimitReached()
       datetime today = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
       if(lastLossLog != today)
         {
-         PrintFormat("AjipIDM: Daily MAX LOSS reached. PnL=%.2f <= -%.2f. No new trades.",
+         if(InpEnableLog) PrintFormat("AjipIDM: Daily MAX LOSS reached. PnL=%.2f <= -%.2f. No new trades.",
                      pnl, InpDailyMaxLoss);
          lastLossLog = today;
         }
@@ -249,7 +249,7 @@ void CheckSessionCloseAll()
    double total = GetDailyPnL() + GetFloatingPnL();
    if(total <= 0.0) return;
 
-   PrintFormat("AjipIDM: Outside session (%02d:%02d-%02d:%02d), PnL=%.2f > 0 — closing all positions.",
+   if(InpEnableLog) PrintFormat("AjipIDM: Outside session (%02d:%02d-%02d:%02d), PnL=%.2f > 0 — closing all positions.",
                g_sessionStartMin / 60, g_sessionStartMin % 60,
                g_sessionEndMin / 60, g_sessionEndMin % 60, total);
    CloseAllAndFlushBatch("SESSION_END");
@@ -272,13 +272,13 @@ void CheckBatchCloseAll()
 
    if(status == LIMIT_STATUS_TARGET_HIT)
      {
-      PrintFormat("AjipIDM: Batch TARGET reached (%.2f >= %.2f) — closing current batch.",
+      if(InpEnableLog) PrintFormat("AjipIDM: Batch TARGET reached (%.2f >= %.2f) — closing current batch.",
                   total, InpBatchMaxProfit);
       CloseAllAndFlushBatch("BATCH_TARGET");
      }
    else if(status == LIMIT_STATUS_MAXLOSS_HIT)
      {
-      PrintFormat("AjipIDM: Batch MAX LOSS reached (%.2f <= -%.2f) — closing current batch.",
+      if(InpEnableLog) PrintFormat("AjipIDM: Batch MAX LOSS reached (%.2f <= -%.2f) — closing current batch.",
                   total, InpBatchMaxLoss);
       CloseAllAndFlushBatch("BATCH_MAX_LOSS");
      }
@@ -334,7 +334,7 @@ void WriteBatchCsv(const string reason)
    int    handle = FileOpen(fname, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI);
    if(handle == INVALID_HANDLE)
      {
-      PrintFormat("AjipIDM: WriteBatchCsv — failed to open %s, error=%d", fname, GetLastError());
+      if(InpEnableLog) PrintFormat("AjipIDM: WriteBatchCsv — failed to open %s, error=%d", fname, GetLastError());
       return;
      }
 
@@ -352,7 +352,7 @@ void WriteBatchCsv(const string reason)
    FileWriteString(handle, line);
    FileClose(handle);
 
-   PrintFormat("AjipIDM: Batch CSV written. Reason=%s Positions=%d Wins=%d Losses=%d BE=%d TotalPnL=%.2f",
+   if(InpEnableLog) PrintFormat("AjipIDM: Batch CSV written. Reason=%s Positions=%d Wins=%d Losses=%d BE=%d TotalPnL=%.2f",
                reason, g_batchCount, g_batchWins, g_batchLosses, g_batchBreakEven, g_batchRealizedPnl);
   }
 
@@ -399,7 +399,7 @@ void CloseAllAndFlushBatch(const string reason)
       if(PositionGetInteger(POSITION_MAGIC) != InpMagicNumber) continue;
 
       if(!trade.PositionClose(ticket))
-         PrintFormat("AjipIDM: CloseAllAndFlushBatch — failed to close ticket=%I64u, retcode=%d (%s)",
+         if(InpEnableLog) PrintFormat("AjipIDM: CloseAllAndFlushBatch — failed to close ticket=%I64u, retcode=%d (%s)",
                      ticket, trade.ResultRetcode(), trade.ResultRetcodeDescription());
      }
 

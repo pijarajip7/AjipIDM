@@ -10,7 +10,7 @@ bool InitStructure()
    int copied = CopyRates(_Symbol, InpTimeframe, 0, InpCandlesInit, rates);
    if(copied < 10)
      {
-      PrintFormat("AjipIDM: Not enough bars for init (%d)", copied);
+      if(InpEnableLog) PrintFormat("AjipIDM: Not enough bars for init (%d)", copied);
       return(false);
      }
 
@@ -40,7 +40,7 @@ bool InitStructure()
       // High occurred BEFORE low → downtrend
       g_trend = TREND_DOWN;
       originIdx = highIdx;
-      PrintFormat("AjipIDM: Init DOWN. HH@%s (%.5f), LL@%s (%.5f)",
+      if(InpEnableLog) PrintFormat("AjipIDM: Init DOWN. HH@%s (%.5f), LL@%s (%.5f)",
                   TimeToString(rates[highIdx].time), highest,
                   TimeToString(rates[lowIdx].time), lowest);
      }
@@ -49,7 +49,7 @@ bool InitStructure()
       // Low occurred BEFORE high → uptrend
       g_trend = TREND_UP;
       originIdx = lowIdx;
-      PrintFormat("AjipIDM: Init UP. LL@%s (%.5f), HH@%s (%.5f)",
+      if(InpEnableLog) PrintFormat("AjipIDM: Init UP. LL@%s (%.5f), HH@%s (%.5f)",
                   TimeToString(rates[lowIdx].time), lowest,
                   TimeToString(rates[highIdx].time), highest);
      }
@@ -96,7 +96,7 @@ bool InitStructure()
    // Last CLOSED bar = rates[copied-2] (rates[copied-1] is the forming bar)
    g_lastBarTime = rates[copied - 2].time;
 
-   PrintFormat("AjipIDM: Structure built. Trend=%s, Swings=%d, idm=%.5f",
+   if(InpEnableLog) PrintFormat("AjipIDM: Structure built. Trend=%s, Swings=%d, idm=%.5f",
                TrendString(g_trend), ArraySize(g_swings), g_idmPrice);
 
    if(InpDrawLines) DrawSwings();

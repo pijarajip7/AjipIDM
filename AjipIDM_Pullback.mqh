@@ -135,7 +135,7 @@ void DetectPullback(MqlRates &bar)
       g_outsideBar.low   = bar.low;
       g_outsideBar.time  = bar.time;
       g_outsideBar.valid = true;
-      PrintFormat("AjipIDM: Outside bar detected. Phase=%s high=%.5f low=%.5f — pending resolution",
+      if(InpEnableLog) PrintFormat("AjipIDM: Outside bar detected. Phase=%s high=%.5f low=%.5f — pending resolution",
                   g_phase == PHASE_UP ? "UP" : "DOWN", bar.high, bar.low);
       return;
      }

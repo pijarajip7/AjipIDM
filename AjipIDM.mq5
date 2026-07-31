@@ -42,6 +42,7 @@ input bool             InpShowPanel   = true;             // Show info panel (tr
 input ENUM_BASE_CORNER InpPanelCorner = CORNER_LEFT_UPPER; // Panel corner
 input int              InpPanelX      = 20;               // Panel X offset (px)
 input int              InpPanelY      = 50;               // Panel Y offset (px)
+input bool             InpEnableLog   = true;              // Print diagnostic/debug messages to the Experts log
 
 //--- AjipIDM module includes (order matters: globals first, then deps) ---
 #include "AjipIDM_Globals.mqh"
@@ -76,7 +77,7 @@ int OnInit()
    int  startMin = 0, endMin = 0;
    bool sessionParsedOk = ParseHHMM(InpSessionStart, startMin) && ParseHHMM(InpSessionEnd, endMin);
    if(!sessionParsedOk)
-      PrintFormat("AjipIDM: Invalid InpSessionStart/InpSessionEnd (%s/%s) — session filter disabled.",
+      if(InpEnableLog) PrintFormat("AjipIDM: Invalid InpSessionStart/InpSessionEnd (%s/%s) — session filter disabled.",
                   InpSessionStart, InpSessionEnd);
 
    g_sessionStartMin      = startMin;
@@ -86,13 +87,13 @@ int OnInit()
    // Build initial structure from lookback candles
    if(!InitStructure())
      {
-      Print("AjipIDM: InitStructure failed — will retry on first tick");
+      if(InpEnableLog) Print("AjipIDM: InitStructure failed — will retry on first tick");
       // Not fatal; OnTick will attempt rebuild
      }
 
    // Build initial HTF context — always active, drives the equilibrium filter.
    if(!InitHtfStructure())
-      Print("AjipIDM: InitHtfStructure failed — will retry on first tick");
+      if(InpEnableLog) Print("AjipIDM: InitHtfStructure failed — will retry on first tick");
 
    UpdatePanel();
 

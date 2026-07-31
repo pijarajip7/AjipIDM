@@ -62,11 +62,11 @@ void ReverseToDowntrend(MqlRates &takenBar)
 
    if(originPrice <= 0.0)
      {
-      Print("AjipIDM: ReverseToDowntrend — no origin found!");
+      if(InpEnableLog) Print("AjipIDM: ReverseToDowntrend — no origin found!");
       return;
      }
 
-   PrintFormat("AjipIDM: ReverseToDowntrend origin = highest high = %.5f@%s",
+   if(InpEnableLog) PrintFormat("AjipIDM: ReverseToDowntrend origin = highest high = %.5f@%s",
                originPrice, TimeToString(originTime));
 
    // Switch trend
@@ -103,7 +103,7 @@ void ReverseToDowntrend(MqlRates &takenBar)
    // Update idm for new trend
    UpdateIdm();
 
-   PrintFormat("AjipIDM: Reversed to DOWN. Origin SHD0=%.5f@%s, swings=%d",
+   if(InpEnableLog) PrintFormat("AjipIDM: Reversed to DOWN. Origin SHD0=%.5f@%s, swings=%d",
                originPrice, TimeToString(originTime), ArraySize(g_swings));
 
    if(InpDrawLines) DrawSwings();
@@ -170,11 +170,11 @@ void ReverseToUptrend(MqlRates &takenBar)
 
    if(originPrice <= 0.0)
      {
-      Print("AjipIDM: ReverseToUptrend — no origin found!");
+      if(InpEnableLog) Print("AjipIDM: ReverseToUptrend — no origin found!");
       return;
      }
 
-   PrintFormat("AjipIDM: ReverseToUptrend origin = lowest low = %.5f@%s",
+   if(InpEnableLog) PrintFormat("AjipIDM: ReverseToUptrend origin = lowest low = %.5f@%s",
                originPrice, TimeToString(originTime));
 
    // Switch trend
@@ -209,7 +209,7 @@ void ReverseToUptrend(MqlRates &takenBar)
    // Update idm for new trend
    UpdateIdm();
 
-   PrintFormat("AjipIDM: Reversed to UP. Origin SLU0=%.5f@%s, swings=%d",
+   if(InpEnableLog) PrintFormat("AjipIDM: Reversed to UP. Origin SLU0=%.5f@%s, swings=%d",
                originPrice, TimeToString(originTime), ArraySize(g_swings));
 
    if(InpDrawLines) DrawSwings();
@@ -226,7 +226,7 @@ void RebuildStructure(datetime originTime, datetime endTime)
 
    if(originShift < 0 || endShift < 0 || originShift < endShift)
      {
-      PrintFormat("AjipIDM: RebuildStructure bad shifts origin=%d end=%d",
+      if(InpEnableLog) PrintFormat("AjipIDM: RebuildStructure bad shifts origin=%d end=%d",
                   originShift, endShift);
       return;
      }
@@ -269,14 +269,14 @@ void RebuildStructure(datetime originTime, datetime endTime)
    // Debug
    int npb = ArraySize(g_pbSwings);
    int nsw = ArraySize(g_swings);
-   PrintFormat("AjipIDM: RebuildStructure done. pbSwings=%d, swings=%d, bars_replayed=%d",
+   if(InpEnableLog) PrintFormat("AjipIDM: RebuildStructure done. pbSwings=%d, swings=%d, bars_replayed=%d",
                npb, nsw, copied);
    for(int i = 0; i < npb; i++)
-      PrintFormat("  pbSwing[%d]: price=%.5f time=%s isHigh=%s",
+      if(InpEnableLog) PrintFormat("  pbSwing[%d]: price=%.5f time=%s isHigh=%s",
                   i, g_pbSwings[i].price, TimeToString(g_pbSwings[i].time),
                   g_pbSwings[i].isHigh ? "true" : "false");
    for(int i = 0; i < nsw; i++)
-      PrintFormat("  swing[%d]: price=%.5f time=%s isHigh=%s",
+      if(InpEnableLog) PrintFormat("  swing[%d]: price=%.5f time=%s isHigh=%s",
                   i, g_swings[i].price, TimeToString(g_swings[i].time),
                   g_swings[i].isHigh ? "true" : "false");
   }
