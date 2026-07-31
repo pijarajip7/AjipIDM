@@ -23,9 +23,9 @@
 input ENUM_TIMEFRAMES InpTimeframe   = PERIOD_M1;  // Working timeframe
 input double          InpFixedLot    = 0.02;         // Fixed lot size per entry (no SL/TP in this variant)
 input int             InpMinTpPoints = 1000;           // Min HTF reference distance in points (setup-quality filter, skip if below)
-input double          InpDailyMaxProfit = 4000.0;      // Daily target — close ALL positions + stop new trades for the REST OF THE DAY (0=disabled)
-input double          InpDailyMaxLoss   = 300000.0;      // Daily max loss — close ALL positions + stop new trades for the REST OF THE DAY (0=disabled)
-input double          InpBatchMaxProfit = 2000.0;          // Batch target — close current batch only, new entries still allowed right after (0=disabled)
+input double          InpDailyMaxProfit = 40.0;      // Daily target — close ALL positions + stop new trades for the REST OF THE DAY (0=disabled)
+input double          InpDailyMaxLoss   = 300.0;      // Daily max loss — close ALL positions + stop new trades for the REST OF THE DAY (0=disabled)
+input double          InpBatchMaxProfit = 20.0;          // Batch target — close current batch only, new entries still allowed right after (0=disabled)
 input double          InpBatchMaxLoss   = 0.0;          // Batch max loss — close current batch only, new entries still allowed right after (0=disabled)
 input string          InpSessionStart = "02:00";        // Session start (server time HH:MM) — entries only inside session; start==end disables filter
 input string          InpSessionEnd   = "20:00";        // Session end (server time HH:MM) — outside session: no new entries; if PnL > 0, close ALL positions
