@@ -266,22 +266,22 @@ void CheckSessionCloseAll()
    PrintFormat("AjipIDM: Outside session (%02d:%02d-%02d:%02d), PnL=%.2f > 0 — closing all positions.",
                g_sessionStartMin / 60, g_sessionStartMin % 60,
                g_sessionEndMin / 60, g_sessionEndMin % 60, total);
+   g_batchCloseReason  = "SESSION_END";
+   g_batchFlushPending = true;
    CloseAllPositions();
   }
 
 //==================================================================
-// WRITE TRADE CSV — append one closed-trade row (entry + exit + MFE/MAE)
-// to MQL5/Files/AjipIDM_Trades_<symbol>_<magic>.csv. Called once per
-// position from CheckEntryCleanup right when the position is detected fully
-// closed (daily close-all or manual — sums every exit deal including any
-// prior partial close, so RealizedPnL covers the whole position).
+// ACCUMULATE BATCH STATS — fold one fully-closed position's outcome into
+// the current batch accumulator (realized PnL, win/loss/breakeven count,
+// MFE/MAE sums). Nothing is written to disk here — WriteBatchCsv flushes
+// the whole batch at once. Called from CheckEntryCleanup (AjipIDM_Entry.mqh)
+// right before RemoveEntry, for every closed ticket regardless of WHY it
+// closed (breakeven stop mid-day, or swept up by CloseAllPositions).
 //==================================================================
-void WriteTradeCsv(const EntryTracker &e)
+void AccumulateBatchStats(const EntryTracker &e)
   {
-   double   exitPrice   = 0.0;
-   datetime exitTime    = 0;
-   string   reason      = "UNKNOWN";
-   double   realizedPnl = 0.0;
+   double realizedPnl = 0.0;
 
    if(HistorySelectByPosition(e.ticket))
      {
@@ -294,40 +294,75 @@ void WriteTradeCsv(const EntryTracker &e)
          long entryType = HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
          if(entryType != DEAL_ENTRY_OUT && entryType != DEAL_ENTRY_OUT_BY) continue;
 
-         exitPrice = HistoryDealGetDouble(dealTicket, DEAL_PRICE);
-         exitTime  = (datetime)HistoryDealGetInteger(dealTicket, DEAL_TIME);
          realizedPnl += HistoryDealGetDouble(dealTicket, DEAL_PROFIT)
                       + HistoryDealGetDouble(dealTicket, DEAL_SWAP)
                       + HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
-
-         long dealReason = HistoryDealGetInteger(dealTicket, DEAL_REASON);
-         if(dealReason == DEAL_REASON_TP)      reason = "TP";
-         else if(dealReason == DEAL_REASON_SL) reason = "SL";
-         else if(dealReason == DEAL_REASON_SO) reason = "STOPOUT";
-         else                                  reason = "OTHER";
         }
      }
 
-   string fname  = "AjipIDM_Trades_" + _Symbol + "_" + IntegerToString(InpMagicNumber) + ".csv";
+   g_batchCount++;
+   g_batchRealizedPnl += realizedPnl;
+   g_batchMfeSum       += e.mfe;
+   g_batchMaeSum       += e.mae;
+
+   if(realizedPnl > 0.0)      g_batchWins++;
+   else if(realizedPnl < 0.0) g_batchLosses++;
+   else                       g_batchBreakEven++;
+  }
+
+//==================================================================
+// WRITE BATCH CSV — append ONE row summarizing the just-completed batch
+// (every position closed since the last flush) to
+// MQL5/Files/AjipIDM_Batches_<symbol>_<magic>.csv. Called from
+// CheckEntryCleanup once CloseAllPositions has emptied tracking and
+// g_batchCount > 0 (skip writing an empty row if nothing was open).
+//==================================================================
+void WriteBatchCsv()
+  {
+   string fname  = "AjipIDM_Batches_" + _Symbol + "_" + IntegerToString(InpMagicNumber) + ".csv";
    bool   exists = FileIsExist(fname);
    int    handle = FileOpen(fname, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI);
    if(handle == INVALID_HANDLE)
      {
-      PrintFormat("AjipIDM: WriteTradeCsv — failed to open %s, error=%d", fname, GetLastError());
+      PrintFormat("AjipIDM: WriteBatchCsv — failed to open %s, error=%d", fname, GetLastError());
       return;
      }
 
    FileSeek(handle, 0, SEEK_END);
    if(!exists)
-      FileWriteString(handle, "Ticket,Dir,EntryTime,EntryPrice,ExitTime,ExitPrice,CloseReason,RealizedPnL,MFE,MAE\r\n");
+      FileWriteString(handle, "CloseTime,CloseReason,PositionCount,Wins,Losses,BreakEven,TotalRealizedPnL,SumMFE,SumMAE,FirstEntryTime,LastEntryTime\r\n");
 
-   string line = StringFormat("%I64u,%s,%s,%.5f,%s,%.5f,%s,%.2f,%.2f,%.2f\r\n",
-                               e.ticket, e.dir == 1 ? "BUY" : "SELL",
-                               TimeToString(e.entryTime, TIME_DATE | TIME_MINUTES), e.entryPrice,
-                               TimeToString(exitTime, TIME_DATE | TIME_MINUTES), exitPrice,
-                               reason, realizedPnl, e.mfe, e.mae);
+   string line = StringFormat("%s,%s,%d,%d,%d,%d,%.2f,%.2f,%.2f,%s,%s\r\n",
+                               TimeToString(TimeCurrent(), TIME_DATE | TIME_MINUTES),
+                               g_batchCloseReason,
+                               g_batchCount, g_batchWins, g_batchLosses, g_batchBreakEven,
+                               g_batchRealizedPnl, g_batchMfeSum, g_batchMaeSum,
+                               TimeToString(g_batchFirstEntryTime, TIME_DATE | TIME_MINUTES),
+                               TimeToString(g_batchLastEntryTime, TIME_DATE | TIME_MINUTES));
    FileWriteString(handle, line);
    FileClose(handle);
+
+   PrintFormat("AjipIDM: Batch CSV written. Reason=%s Positions=%d Wins=%d Losses=%d BE=%d TotalPnL=%.2f",
+               g_batchCloseReason, g_batchCount, g_batchWins, g_batchLosses, g_batchBreakEven, g_batchRealizedPnl);
+  }
+
+//==================================================================
+// RESET BATCH ACCUMULATOR — clear every per-batch counter after a flush
+// (or a pending flush that turned out empty), ready for the next batch.
+//==================================================================
+void ResetBatchAccumulator()
+  {
+   g_batchActive         = false;
+   g_batchFirstEntryTime = 0;
+   g_batchLastEntryTime  = 0;
+   g_batchCount          = 0;
+   g_batchWins           = 0;
+   g_batchLosses         = 0;
+   g_batchBreakEven      = 0;
+   g_batchRealizedPnl    = 0.0;
+   g_batchMfeSum         = 0.0;
+   g_batchMaeSum         = 0.0;
+   g_batchCloseReason    = "";
   }
 
 //==================================================================

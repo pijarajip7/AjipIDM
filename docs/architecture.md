@@ -61,15 +61,34 @@ kecatat, bukan cuma extreme di closed bar:
     mae = min(mae, profit)
 ```
 
-Saat posisi terdeteksi FULL closed (daily close-all atau manual — dicek di `CheckEntryCleanup`), `WriteTradeCsv()` dipanggil SEBELUM entry dihapus dari tracking:
-- Query exit info dari `HistorySelectByPosition(ticket)`: exit price/time, close reason (TP/SL/STOPOUT/OTHER dari `DEAL_REASON` — TP/SL praktis tidak pernah muncul lagi karena tidak ada order TP/SL), realized P/L (sum semua deal exit termasuk partial close sebelumnya).
-- Append 1 baris ke `MQL5/Files/AjipIDM_Trades_<symbol>_<magic>.csv` (dibuat otomatis kalau belum ada, header ditulis sekali).
-- Kolom: `Ticket,Dir,EntryTime,EntryPrice,ExitTime,ExitPrice,CloseReason,RealizedPnL,MFE,MAE`.
+MFE/MAE per posisi TIDAK ditulis ke CSV satu-satu lagi — sekarang diakumulasi ke batch report, lihat [Batch CSV Report](#batch-csv-report-per-setup) di bawah.
+
+## Batch CSV Report (Per-Setup)
+
+Report per-posisi individual sudah DIGANTI TOTAL oleh report per-"setup" (batch): satu baris CSV merangkum SEMUA posisi yang closed sejak flush terakhir, ditulis SEKALI saat batch itu selesai — bukan satu baris per posisi.
+
+**Akumulasi** (`AccumulateBatchStats`, `AjipIDM_Trade.mqh`) — dipanggil dari `CheckEntryCleanup` untuk SETIAP ticket yang terdeteksi full closed, apa pun sebabnya (breakeven stop mid-day, atau ikut disapu `CloseAllPositions`):
+```
+realizedPnl = sum(DEAL_PROFIT+DEAL_SWAP+DEAL_COMMISSION) dari semua deal
+              DEAL_ENTRY_OUT/OUT_BY posisi itu (termasuk partial close)
+
+g_batchCount++      g_batchRealizedPnl += realizedPnl
+g_batchMfeSum += e.mfe     g_batchMaeSum += e.mae
+realizedPnl > 0 → g_batchWins++ | < 0 → g_batchLosses++ | == 0 → g_batchBreakEven++
+```
+Tidak ada apa pun yang ditulis ke disk di titik ini — cuma akumulasi in-memory.
+
+**First/Last entry time**: `AddEntry` (`AjipIDM_Entry.mqh`) set `g_batchFirstEntryTime` sekali (entry PERTAMA sejak batch terakhir di-flush, ditandai `g_batchActive`), dan selalu update `g_batchLastEntryTime` ke entry TERBARU.
+
+**Flush** — `CheckDailyCloseAll`/`CheckSessionCloseAll` set `g_batchCloseReason` (`DAILY_TARGET`/`DAILY_MAX_LOSS`/`SESSION_END`) + `g_batchFlushPending = true` SEBELUM memanggil `CloseAllPositions()`. `CheckEntryCleanup` (tiap closed LTF bar) menulis baris CSV begitu `g_batchFlushPending` true DAN `g_entries[]` sudah kosong (semua posisi batch itu sudah ke-accumulate + di-remove dari tracking) — baru reset accumulator buat batch berikutnya. Kalau `g_batchCount == 0` saat flush (misal `CheckSessionCloseAll` nge-trigger tanpa ada posisi tersisa), TIDAK ada row kosong yang ditulis, accumulator langsung di-reset diam-diam.
+
+Append 1 baris ke `MQL5/Files/AjipIDM_Batches_<symbol>_<magic>.csv` (dibuat otomatis kalau belum ada, header ditulis sekali). Kolom: `CloseTime,CloseReason,PositionCount,Wins,Losses,BreakEven,TotalRealizedPnL,SumMFE,SumMAE,FirstEntryTime,LastEntryTime`.
 
 Catatan:
-- Partial close (`InpPartialClosePoints`) TIDAK menutup posisi sepenuhnya — ticket tetap ada, jadi tidak memicu CSV write. Row CSV hanya ditulis saat posisi BENAR-BENAR closed (volume habis).
+- **PENTING**: kalau `InpDailyMaxProfit`/`InpDailyMaxLoss` keduanya 0 DAN session filter nonaktif (`InpSessionStart`==`InpSessionEnd`), tidak ada apa pun yang pernah memicu `CloseAllPositions()` → `g_batchFlushPending` tidak pernah true → CSV batch TIDAK PERNAH ditulis, walaupun posisi terus buka/tutup (breakeven stop, dll). Aktifkan minimal salah satu (daily limit atau session) supaya history ke-log.
+- Partial close (`InpPartialClosePoints`) TIDAK menutup posisi sepenuhnya — ticket tetap ada, jadi tidak memicu akumulasi. Posisi baru dihitung sekali batch (win/loss/BE) saat BENAR-BENAR closed (volume habis).
 - Di Strategy Tester, file CSV ada di folder sandbox agent tester (`Tester/Agent-xxx/MQL5/Files/`), bukan folder terminal utama — kalau run optimization paralel, tiap agent punya file sendiri (tidak digabung otomatis).
-- `entryPrice`/`entryTime` diambil dari `POSITION_PRICE_OPEN`/`POSITION_TIME` saat `AddEntry` dipanggil (persis setelah `OpenTrade` sukses), bukan dari `bar.close` — jadi merefleksikan actual fill price broker.
+- Detail per-ticket (entry price, exit price/time individual) sudah tidak ada lagi di CSV — kalau butuh itu, cek log `Print`/`PrintFormat` EA (tab Experts) atau `HistoryDealsTotal` manual di Strategy Tester.
 
 ## Init
 
@@ -99,8 +118,9 @@ Catatan:
 1. Detect new closed LTF bar (via g_lastBarTime)
 2. UpdateStructure: pullback detection + simple structure build
 3. CheckEntryCleanup: untuk semua tracked entries — posisi yang BENAR-BENAR
-   closed (partial close tidak menghapus ticket) → log CSV → remove dari
-   tracking.
+   closed (partial close tidak menghapus ticket) → fold ke batch accumulator
+   → remove dari tracking. Kalau flush pending (dari step 0) dan tracking
+   sudah kosong → tulis 1 baris batch CSV, reset accumulator.
 4. CheckIdmTaken: cek idm taken LTF pada closed bar (entry decision, tidak berubah)
    - Kalau lolos (no body break) → daily limit → session filter (InSession) →
      HtfEntryAllowed (prev-swing body-break filter + reference swing HTF +

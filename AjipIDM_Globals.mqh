@@ -92,6 +92,26 @@ struct EntryTracker
   };
 EntryTracker  g_entries[];
 
+// Batch report accumulator — one CSV row per "setup" (every position closed
+// since the last flush), written once CloseAllPositions empties tracking
+// (daily target/max loss/session-end). Positions closed earlier in the
+// batch (e.g. breakeven stop after partial close) fold their stats in here
+// silently — nothing is written to disk until the whole batch is done. See
+// AccumulateBatchStats/WriteBatchCsv/ResetBatchAccumulator (AjipIDM_Trade.mqh)
+// and CheckEntryCleanup (AjipIDM_Entry.mqh).
+bool           g_batchActive         = false; // true once this batch's first entry has opened
+datetime       g_batchFirstEntryTime = 0;
+datetime       g_batchLastEntryTime  = 0;
+int            g_batchCount          = 0;     // positions accounted for so far
+int            g_batchWins           = 0;
+int            g_batchLosses         = 0;
+int            g_batchBreakEven      = 0;
+double         g_batchRealizedPnl    = 0.0;
+double         g_batchMfeSum         = 0.0;
+double         g_batchMaeSum         = 0.0;
+bool           g_batchFlushPending   = false; // set true right before a CloseAllPositions() call
+string         g_batchCloseReason    = "";    // DAILY_TARGET / DAILY_MAX_LOSS / SESSION_END
+
 // Bar tracking
 datetime       g_lastBarTime = 0;  // for new-bar detection within OnTick
 

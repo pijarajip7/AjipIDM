@@ -177,7 +177,7 @@ InpDailyMaxLoss   > 0 DAN total <= -InpDailyMaxLoss  → CloseAllPositions()
 ```
 `CloseAllPositions()` menutup SEMUA posisi (symbol + magic ini), termasuk yang sudah kena partial close sebagian. Floating diikutkan di `total` supaya trigger-nya reaktif — tidak perlu nunggu posisi ditutup manual dulu baru target/loss "kehitung". Setelah close-all, `DailyLimitReached()` (realized-only) otomatis memblokir entry baru untuk sisa hari itu.
 
-`CheckEntryCleanup()` cuma tugas cleanup: deteksi posisi yang BENAR-BENAR closed (bukan partial) → log CSV → hapus dari tracking.
+`CheckEntryCleanup()` cuma tugas cleanup: deteksi posisi yang BENAR-BENAR closed (bukan partial) → fold ke batch accumulator → hapus dari tracking. Report-nya sendiri (CSV per-setup, bukan per-posisi) — lihat [Batch CSV Report](architecture.md#batch-csv-report-per-setup) di architecture.md.
 
 ## Trading Session (Jam Buka/Tutup)
 

@@ -39,7 +39,7 @@
 | `AjipIDM_Structure.mqh` | Stage 2: simple structure build (filter + premature update) |
 | `AjipIDM_Reversal.mqh` | ReverseToDowntrend/Up + RebuildStructure (live replay) |
 | `AjipIDM_Entry.mqh` | CheckIdmTaken + entry logic + partial close + daily close-all |
-| `AjipIDM_Trade.mqh` | OpenTrade (fixed lot), CloseAllPositions, swing helpers, MFE/MAE CSV export |
+| `AjipIDM_Trade.mqh` | OpenTrade (fixed lot), CloseAllPositions, session filter, swing helpers, batch CSV report |
 | `AjipIDM_Core.mqh` | InitStructure, OnTick dispatch |
 | `AjipIDM_HtfContext.mqh` | HTF trend filter — trimmed structure/idm engine (context-only, no trading) + chart drawing |
 | `AjipIDM_Panel.mqh` | On-chart info panel — trend, HTF trend, today/week/month realized P/L, live open MFE/MAE |

@@ -2,8 +2,11 @@
 #define AJIPIDM_ENTRY_MQH
 
 // CHECK ENTRY CLEANUP — detect positions that closed (partial-close leaves
-// the ticket open, only a full close removes it — daily close-all or
-// manual), log MFE/MAE to CSV, remove from tracking.
+// the ticket open, only a full close removes it), fold each one's outcome
+// into the current batch accumulator, remove from tracking. Once tracking
+// is empty AND a flush is pending (set by CheckDailyCloseAll/
+// CheckSessionCloseAll right before they called CloseAllPositions), write
+// the ONE batch CSV row and reset the accumulator for the next batch.
 //==================================================================
 void CheckEntryCleanup()
   {
@@ -12,14 +15,24 @@ void CheckEntryCleanup()
      {
       if(!PositionSelectByTicket(g_entries[i].ticket))
         {
-         WriteTradeCsv(g_entries[i]);
+         AccumulateBatchStats(g_entries[i]);
          RemoveEntry(i);
         }
+     }
+
+   if(g_batchFlushPending && ArraySize(g_entries) == 0)
+     {
+      if(g_batchCount > 0)
+         WriteBatchCsv();
+      ResetBatchAccumulator();
+      g_batchFlushPending = false;
      }
   }
 
 //==================================================================
-// ADD ENTRY to tracking
+// ADD ENTRY to tracking. Also marks the start of a new batch (first entry
+// since the last flush) or extends the current batch's last-entry-time —
+// see g_batch* globals (AjipIDM_Globals.mqh).
 //==================================================================
 void AddEntry(ulong ticket, int dir)
   {
@@ -35,6 +48,13 @@ void AddEntry(ulong ticket, int dir)
      {
       g_entries[n].entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
       g_entries[n].entryTime  = (datetime)PositionGetInteger(POSITION_TIME);
+
+      if(!g_batchActive)
+        {
+         g_batchActive         = true;
+         g_batchFirstEntryTime = g_entries[n].entryTime;
+        }
+      g_batchLastEntryTime = g_entries[n].entryTime;
      }
   }
 
@@ -141,12 +161,16 @@ void CheckDailyCloseAll()
      {
       PrintFormat("AjipIDM: Daily TARGET reached (%.2f >= %.2f) — closing all positions.",
                   total, InpDailyMaxProfit);
+      g_batchCloseReason  = "DAILY_TARGET";
+      g_batchFlushPending = true;
       CloseAllPositions();
      }
    else if(status == DAILY_STATUS_MAXLOSS_HIT)
      {
       PrintFormat("AjipIDM: Daily MAX LOSS reached (%.2f <= -%.2f) — closing all positions.",
                   total, InpDailyMaxLoss);
+      g_batchCloseReason  = "DAILY_MAX_LOSS";
+      g_batchFlushPending = true;
       CloseAllPositions();
      }
   }
