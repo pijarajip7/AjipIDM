@@ -297,6 +297,7 @@ void CheckAggressiveIdmTouch()
    if(rates[0].time == g_aggressiveFiredBarTime) return; // already fired for this forming bar
    if(DailyLimitReached()) return;
    if(!InSession()) return;
+   if(InNewsBlackout()) return;
 
    MqlTick tick;
    if(!SymbolInfoTick(_Symbol, tick)) return;
@@ -404,6 +405,10 @@ void CheckIdmTaken(MqlRates &bar)
            {
             if(InpEnableLog) PrintFormat("AjipIDM: BUY skip — outside trading session.");
            }
+         else if(InNewsBlackout())
+           {
+            if(InpEnableLog) PrintFormat("AjipIDM: BUY skip — news blackout.");
+           }
          else if(HtfEntryAllowed(true, bar.close))
            {
             ulong ticket = OpenTrade(true, bar.close);
@@ -431,6 +436,10 @@ void CheckIdmTaken(MqlRates &bar)
          else if(!InSession())
            {
             if(InpEnableLog) PrintFormat("AjipIDM: SELL skip — outside trading session.");
+           }
+         else if(InNewsBlackout())
+           {
+            if(InpEnableLog) PrintFormat("AjipIDM: SELL skip — news blackout.");
            }
          else if(HtfEntryAllowed(false, bar.close))
            {

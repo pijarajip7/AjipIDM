@@ -6,7 +6,8 @@
 // batch target/max-loss status (both via ClassifyLimitStatus — daily blocks
 // new entries when hit, batch doesn't, see AjipIDM_Trade.mqh/
 // AjipIDM_Entry.mqh), session status (InSession(), same gate used for new
-// entries and CheckSessionCloseAll), and live open MFE/MAE (summed across
+// entries and CheckSessionCloseAll), news blackout status (InNewsBlackout(),
+// AjipIDM_News.mqh — same gate used for new entries), and live open MFE/MAE (summed across
 // tracked open positions — updated every tick via UpdateMfeMae() in
 // AjipIDM_Entry.mqh). The panel itself still refreshes once per closed LTF
 // bar (same cadence as everything else in this EA — not a timer, so
@@ -59,6 +60,18 @@ color SessionStatusColor()
    return(InSession() ? clrLimeGreen : clrTomato);
   }
 
+string NewsStatusText()
+  {
+   if(!InpNewsFilterEnabled) return("disabled");
+   return(InNewsBlackout() ? "BLOCKED" : "clear");
+  }
+
+color NewsStatusColor()
+  {
+   if(!InpNewsFilterEnabled) return(clrSilver);
+   return(InNewsBlackout() ? clrTomato : clrLimeGreen);
+  }
+
 void PanelLabel(string name, int yOffset, string text, color clr)
   {
    if(ObjectFind(0, name) < 0)
@@ -82,7 +95,7 @@ void UpdatePanel()
    if(!InpShowPanel) return;
 
    const int lineH = 16;
-   const int lines = 11;
+   const int lines = 12;
    int y = 0;
 
    // Background box sized to fit the content
@@ -139,6 +152,9 @@ void UpdatePanel()
    y += lineH;
 
    PanelLabel(g_panelPrefix + "Session", y, "Session:   " + SessionStatusText(), SessionStatusColor());
+   y += lineH;
+
+   PanelLabel(g_panelPrefix + "News", y, "News:      " + NewsStatusText(), NewsStatusColor());
    y += lineH;
 
    // Open MFE/MAE — summed across all currently tracked open positions

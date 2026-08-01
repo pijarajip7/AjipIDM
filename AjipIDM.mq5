@@ -29,6 +29,10 @@ input double          InpBatchMaxProfit = 20.0;          // Batch target — clo
 input double          InpBatchMaxLoss   = 0.0;          // Batch max loss — close current batch only, new entries still allowed right after (0=disabled)
 input string          InpSessionStart = "02:00";        // Session start (server time HH:MM) — entries only inside session; start==end disables filter
 input string          InpSessionEnd   = "20:00";        // Session end (server time HH:MM) — outside session: no new entries; if PnL > 0, close ALL positions
+input bool             InpNewsFilterEnabled = false;              // Block new entries around high-impact calendar news for this symbol's currencies
+input ENUM_CALENDAR_EVENT_IMPORTANCE InpNewsMinImportance = CALENDAR_IMPORTANCE_HIGH; // Minimum event importance to block on
+input int              InpNewsMinutesBefore = 30;                 // Minutes before a matching event to start blocking new entries
+input int              InpNewsMinutesAfter  = 30;                 // Minutes after a matching event to keep blocking new entries
 input int             InpPartialClosePoints  = 500; // Points profit to trigger one-time partial close (0=disabled)
 input double          InpPartialClosePercent = 50.0; // % of position volume to close at partial-close threshold
 input ENUM_TIMEFRAMES  InpHtfTimeframe = PERIOD_M15;  // Higher timeframe — drives equilibrium filter for every entry
@@ -51,6 +55,7 @@ input bool             InpEnableLog   = true;              // Print diagnostic/d
 #include "AjipIDM_Reversal.mqh"
 #include "AjipIDM_Entry.mqh"
 #include "AjipIDM_Trade.mqh"
+#include "AjipIDM_News.mqh"
 #include "AjipIDM_Core.mqh"
 #include "AjipIDM_HtfContext.mqh"
 #include "AjipIDM_Panel.mqh"
