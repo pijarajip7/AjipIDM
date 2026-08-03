@@ -375,19 +375,38 @@ void ResetBatchAccumulator()
   }
 
 //==================================================================
+// FLUSH BATCH IF DONE — writes the batch CSV row (skipped if
+// g_batchCount==0 — nothing was ever open) and resets the accumulator, but
+// ONLY if g_entries is empty (every tracked position accounted for). No-op
+// otherwise (stragglers still open — retried whichever trigger fires next).
+// Shared by CloseAllAndFlushBatch (deliberate close-all: daily/batch
+// target/loss, session end) and CheckEntryCleanup (AjipIDM_Entry.mqh —
+// organic close, e.g. every remaining position stopped out at breakeven
+// with no close-all ever firing) so a batch gets flushed to CSV as soon as
+// it's actually finished, regardless of WHY it emptied out.
+//==================================================================
+void FlushBatchIfDone(const string reason)
+  {
+   if(ArraySize(g_entries) > 0)
+      return; // one or more stragglers still open — don't flush yet
+
+   if(g_batchCount > 0)
+      WriteBatchCsv(reason);
+   ResetBatchAccumulator();
+  }
+
+//==================================================================
 // CLOSE ALL AND FLUSH BATCH — this symbol + magic. Closes every open
 // position, then ATOMICALLY (no next-bar delay) folds each tracked entry's
-// outcome into the batch accumulator and removes it from tracking. If
-// everything closed successfully (tracking now empty), writes ONE batch
-// CSV row (skipped if g_batchCount==0 — nothing was open) and resets the
-// accumulator. If one or more closes FAILED (still open at broker), those
-// stay tracked and NOTHING is flushed yet — retried whichever trigger fires
-// next. Doing this synchronously (not deferred to CheckEntryCleanup on the
-// next closed bar) matters specifically for CheckBatchCloseAll: unlike
-// daily/session, a batch-limit hit does NOT block new entries, so without
-// this a new entry could open (AddEntry) on the same or a later tick BEFORE
-// the old batch's tracking was ever cleared/flushed — corrupting the
-// boundary between the old and new batch.
+// outcome into the batch accumulator and removes it from tracking, then
+// flushes via FlushBatchIfDone. If one or more closes FAILED (still open at
+// broker), those stay tracked and nothing is flushed yet — retried whichever
+// trigger fires next. Doing this synchronously (not deferred to
+// CheckEntryCleanup on the next closed bar) matters specifically for
+// CheckBatchCloseAll: unlike daily/session, a batch-limit hit does NOT block
+// new entries, so without this a new entry could open (AddEntry) on the same
+// or a later tick BEFORE the old batch's tracking was ever cleared/flushed —
+// corrupting the boundary between the old and new batch.
 //==================================================================
 void CloseAllAndFlushBatch(const string reason)
   {
@@ -413,12 +432,7 @@ void CloseAllAndFlushBatch(const string reason)
       RemoveEntry(i);
      }
 
-   if(ArraySize(g_entries) > 0)
-      return; // one or more stragglers still open — don't flush yet
-
-   if(g_batchCount > 0)
-      WriteBatchCsv(reason);
-   ResetBatchAccumulator();
+   FlushBatchIfDone(reason);
   }
 
 //==================================================================

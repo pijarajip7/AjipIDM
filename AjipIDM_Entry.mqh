@@ -5,8 +5,10 @@
 // CloseAllAndFlushBatch (partial-close leaves the ticket open — only a full
 // close removes it; e.g. a breakeven stop hit mid-batch). Folds each one's
 // outcome into the current batch accumulator and removes it from tracking.
-// Never writes CSV itself — the batch is only flushed by
-// CloseAllAndFlushBatch (AjipIDM_Trade.mqh), which does so atomically.
+// If that was the LAST tracked position (every open position stopped out
+// organically, with no batch/daily/session close-all ever firing),
+// FlushBatchIfDone (AjipIDM_Trade.mqh) writes the CSV row right here instead
+// of leaving the batch open indefinitely waiting for some later trigger.
 //==================================================================
 void CheckEntryCleanup()
   {
@@ -19,6 +21,8 @@ void CheckEntryCleanup()
          RemoveEntry(i);
         }
      }
+
+   FlushBatchIfDone("ALL_CLOSED");
   }
 
 //==================================================================
