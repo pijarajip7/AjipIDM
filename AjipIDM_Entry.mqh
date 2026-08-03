@@ -352,6 +352,7 @@ void CheckAggressiveZoneEntry()
   {
    if(!InpUseAggressiveEntry) return;
    if(g_idmZonePrice <= 0.0) return;
+   if(!g_idmConfirmed) return; // dangling origin right after a reversal — not a real idm yet
    if(g_initMode) return;
    if(g_idmZoneEntryFiredTime == g_idmTime) return; // already entered for this idm level
 
@@ -441,6 +442,7 @@ void CheckIdmTaken(MqlRates &bar)
 void CheckIdmZoneEntry(MqlRates &bar)
   {
    if(g_idmZonePrice <= 0.0) return;
+   if(!g_idmConfirmed) return; // dangling origin right after a reversal — not a real idm yet
    if(g_initMode) return;
    if(g_idmZoneEntryFiredTime == g_idmTime) return; // already entered for this idm level
 

@@ -76,6 +76,15 @@ double         g_idmPrice     = 0.0; // current idm level — gates structural r
 double         g_idmZonePrice = 0.0; // opposite extreme of the idm bar — looser entry-trigger boundary (CheckIdmZoneEntry/CheckAggressiveZoneEntry)
 datetime       g_idmTime      = 0;   // bar time g_idmPrice/g_idmZonePrice refer to — identifies "which idm level", used as the one-shot entry key (g_idmZoneEntryFiredTime)
 bool           g_idmTaken = false; // idm has been taken this cycle
+// True only when g_idmPrice/g_idmZonePrice come from an actual confirmed swing
+// (a SL/SH that already has an opposite-type swing after it — see UpdateIdm).
+// Right after a reversal there's only the origin swing (n==1): UpdateIdm still
+// reports it as g_idmPrice for structural bookkeeping, but it has no opposite
+// swing after it yet — it's the tail end of the OLD trend, not a confirmed
+// idm for the NEW one. Entry (CheckIdmZoneEntry/CheckAggressiveZoneEntry) must
+// wait for g_idmConfirmed before trading it; reversal detection (CheckIdmTaken)
+// doesn't need to.
+bool           g_idmConfirmed = false;
 
 // One-shot entry guard — decoupled from reversal (g_idmTaken above). Once an
 // entry fires (via CheckAggressiveZoneEntry or CheckIdmZoneEntry) for a given

@@ -158,14 +158,20 @@ void UpdateIdm()
       g_idmPrice     = 0.0;
       g_idmZonePrice = 0.0;
       g_idmTime      = 0;
+      g_idmConfirmed = false;
       return;
      }
    if(n == 1)
      {
-      // Origin is always the initial idm
+      // Origin is the initial idm for STRUCTURAL purposes (CheckIdmTaken can
+      // still detect an early re-sweep of it) — but it's the tail of the leg
+      // that just ended, not a confirmed swing of the new trend (no opposite
+      // swing after it yet). g_idmConfirmed stays false so entry (CheckIdmZoneEntry/
+      // CheckAggressiveZoneEntry) won't trade off it until a real idm forms.
       g_idmPrice     = g_swings[0].price;
       g_idmZonePrice = g_swings[0].zonePrice;
       g_idmTime      = g_swings[0].time;
+      g_idmConfirmed = false;
       return;
      }
 
@@ -188,6 +194,7 @@ void UpdateIdm()
             g_idmPrice     = g_swings[i].price;
             g_idmZonePrice = g_swings[i].zonePrice;
             g_idmTime      = g_swings[i].time;
+            g_idmConfirmed = true;
             return;
            }
         }
@@ -201,6 +208,7 @@ void UpdateIdm()
             g_idmPrice     = g_swings[i].price;
             g_idmZonePrice = g_swings[i].zonePrice;
             g_idmTime      = g_swings[i].time;
+            g_idmConfirmed = true;
             return;
            }
         }
@@ -209,6 +217,7 @@ void UpdateIdm()
    g_idmPrice     = 0.0;
    g_idmZonePrice = 0.0;
    g_idmTime      = 0;
+   g_idmConfirmed = false;
   }
 
 #endif // AJIPIDM_STRUCTURE_MQH
