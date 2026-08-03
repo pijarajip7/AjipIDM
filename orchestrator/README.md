@@ -47,12 +47,82 @@ Edit `accounts.json`:
 
 ## Run
 
+Both the orchestrator and the dashboard together, one command:
+
+```bash
+python run.py
+```
+
+`run.py` starts both, prefixes each line of output with `[orchestrator]` /
+`[dashboard]`, and stops both on Ctrl+C. If one of them crashes it does
+**not** take the other down with it — the dashboard shows a "stale"
+warning if orchestrator.py dies (so you can still notice remotely), and
+orchestrator.py keeps rotating regardless of whether the dashboard is up.
+Pass `--dashboard-port`/`--dashboard-address` to override the defaults
+(`8501` / `0.0.0.0`).
+
+Or run them separately (e.g. in two terminals, useful while debugging one
+of them in isolation):
+
 ```bash
 python orchestrator.py
 ```
 
-Leave it running (e.g. as a Windows service / scheduled task on the VPS
-alongside the terminal). Ctrl+C to stop.
+```bash
+streamlit run dashboard.py --server.address 0.0.0.0 --server.port 8501 --server.headless true
+```
+
+Leave whichever you use running (e.g. as a Windows service / scheduled task
+on the VPS alongside the terminal).
+
+## Dashboard
+
+`dashboard.py` is a Streamlit page for monitoring every account in the
+rotation — not just whichever one happens to be logged in right now. It's a
+**separate process** from `orchestrator.py` and never touches the MT5 API
+itself (it would contend with orchestrator.py for the one terminal login
+slot) — it only reads files orchestrator.py and the EA already write to
+disk:
+
+- `live_status.json` — balance/equity/floating PnL/open positions for the
+  **currently active** account only (single-terminal rotation — every other
+  account's live numbers are simply unavailable until it's their turn).
+  Written by orchestrator.py every poll cycle.
+- `state.json` — rotation position, which logins are maxed out today.
+- `handoff_history.csv` — persistent log of every target/max-loss event
+  (the signal file itself is deleted right after being read — this is the
+  only record that survives).
+- `AjipIDM_Batches_<symbol>_<magic>_<login>.csv` — one file per account
+  (written by the EA itself, `AjipIDM_Trade.mqh:WriteBatchCsv`), used for
+  today's/all-time realized PnL, win rate, trade count, and the cumulative
+  PnL chart per account.
+
+### Setup
+
+```bash
+pip install -r requirements.txt
+```
+
+Set a dashboard password (stored as a sha256 hash only, never plaintext):
+
+```bash
+python -c "import hashlib, getpass, json; json.dump({'password_hash': hashlib.sha256(getpass.getpass('Dashboard password: ').encode()).hexdigest()}, open('dashboard_auth.json', 'w'))"
+```
+
+See "Run" above (`python run.py`) to start it alongside `orchestrator.py`.
+
+### Accessing it remotely — security note
+
+The password gate is a basic check, not real access control: no
+rate-limiting, no session expiry, and Streamlit serves plain HTTP with no
+TLS of its own. If you bind `0.0.0.0` so it's reachable from outside the
+VPS, do at least one of:
+
+- Restrict the port at the VPS firewall to your own IP.
+- Put a reverse proxy in front for TLS (e.g. Caddy — a single `caddyfile`
+  line with automatic HTTPS is enough) and only expose the proxy's port.
+
+Don't rely on the password alone if the port is open to the whole internet.
 
 ## Known limitations (V1)
 

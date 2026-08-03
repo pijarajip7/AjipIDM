@@ -13,4 +13,8 @@
 # Orchestrator secrets/runtime state — never commit real credentials
 orchestrator/accounts.json
 orchestrator/state.json
+orchestrator/live_status.json
+orchestrator/live_status.json.tmp
+orchestrator/handoff_history.csv
+orchestrator/dashboard_auth.json
 orchestrator/__pycache__/
