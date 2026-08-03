@@ -1,6 +1,9 @@
 {
   "poll_interval_seconds": 5,
   "handoff_filename": "AjipIDM_Handoff.csv",
+  "heartbeat_filename": "AjipIDM_Heartbeat.csv",
+  "heartbeat_grace_seconds": 60,
+  "heartbeat_timeout_seconds": 90,
   "mt5_terminal_path": "C:\\Program Files\\MetaTrader 5\\terminal64.exe",
   "accounts": [
     {

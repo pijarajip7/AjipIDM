@@ -26,6 +26,45 @@ this lives outside the EA, in Python.
 4. If every account in the list has hit its daily limit, the orchestrator
    idles until its local date rolls over, then resets and resumes.
 
+## What if the EA isn't attached on the account being switched to
+
+`mt5.login()` only authenticates the terminal — it has no idea whether an
+EA is actually attached to a chart. If it isn't (or it's attached to the
+wrong symbol, or it crashed), that account just sits there doing nothing:
+no entries, no daily target/loss detection, and since `WriteHandoffSignal`
+is only ever called *from inside* the EA, no handoff signal will ever
+fire — the orchestrator would otherwise wait on that account silently,
+possibly for the rest of the day, with no error.
+
+To catch this, the EA (when `InpHandoffEnabled = true`) also writes a small
+heartbeat file (`AjipIDM_Heartbeat.csv`, `InpHeartbeatFile`) to `Common\Files`
+every ~30 seconds. Each poll cycle, the orchestrator checks it
+(`check_ea_heartbeat`):
+
+- **No file, or the file still shows the previous account's login** — the
+  new account's EA hasn't written yet.
+- **File exists with the right login but hasn't been updated recently**
+  (`heartbeat_timeout_seconds`, default 90s) — the EA was running but has
+  since stopped.
+- A `heartbeat_grace_seconds` window (default 60s) after every switch
+  suppresses both checks — the EA needs a moment to log its first
+  heartbeat after login.
+
+On failure it logs a `WARNING` (throttled — one line per minute, not every
+poll cycle) and sets `ea_alive: false` in `live_status.json`, which the
+dashboard's Live panel surfaces directly. It does **not** retry the
+switch or attach anything itself — MQL5/MT5 give no API to attach an EA
+to a chart programmatically, so this is a visibility tool, not an
+auto-fix; attaching the EA (with Algo Trading enabled) to a chart on
+each rotation account ahead of time is still a manual, one-time setup
+step per account.
+
+Freshness is judged by the heartbeat file's own filesystem `mtime`, not
+the timestamp written inside it — that's the EA's broker *server* time,
+which can be hours off from the VPS's local clock, while `mtime` is set
+by the OS on the same machine the orchestrator runs on and needs no
+timezone handling.
+
 ## Setup
 
 ```bash
@@ -41,6 +80,9 @@ Edit `accounts.json`:
   default install path or point it at a specific installation.
 - `poll_interval_seconds`, `handoff_filename`: must match the EA's
   `InpHandoffFile` input if you change it from the default.
+- `heartbeat_filename`, `heartbeat_grace_seconds`, `heartbeat_timeout_seconds`:
+  optional — see "What if the EA isn't attached" above. `heartbeat_filename`
+  must match the EA's `InpHeartbeatFile` input if you change it.
 
 `accounts.json` and `state.json` (runtime rotation position) are gitignored
 — they hold live credentials and must never be committed.

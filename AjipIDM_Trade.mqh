@@ -395,6 +395,39 @@ void WriteHandoffSignal(const string reason, double dailyTotal)
   }
 
 //==================================================================
+// WRITE HEARTBEAT — "I'm alive and trading THIS account" signal for the
+// external orchestrator (orchestrator.py:check_ea_heartbeat). Written to
+// the terminal's shared Common\Files folder, throttled to once per
+// HEARTBEAT_INTERVAL_SECONDS regardless of tick rate. Gated by
+// InpHandoffEnabled — only a multi-account rotation setup has anything
+// watching for it. Overwrites any previous file — freshness (mtime,
+// checked on the Python side) plus the login field are what matter, not a
+// history of writes; the login field lets the orchestrator tell "no EA
+// attached to this account at all" apart from "EA attached but this
+// terminal is still logged into the PREVIOUS account's session" right
+// after a switch.
+//==================================================================
+void WriteHeartbeat()
+  {
+   if(!InpHandoffEnabled) return;
+   if(TimeCurrent() - g_lastHeartbeatTime < HEARTBEAT_INTERVAL_SECONDS) return;
+   g_lastHeartbeatTime = TimeCurrent();
+
+   int handle = FileOpen(InpHeartbeatFile, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+   if(handle == INVALID_HANDLE)
+     {
+      if(InpEnableLog) PrintFormat("AjipIDM: WriteHeartbeat — failed to open %s, error=%d", InpHeartbeatFile, GetLastError());
+      return;
+     }
+
+   string line = StringFormat("login=%d\ntime=%s\nsymbol=%s\nmagic=%d\n",
+                               (int)AccountInfoInteger(ACCOUNT_LOGIN), TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS),
+                               _Symbol, InpMagicNumber);
+   FileWriteString(handle, line);
+   FileClose(handle);
+  }
+
+//==================================================================
 // RESET BATCH ACCUMULATOR — clear every per-batch counter after a flush,
 // ready for the next batch.
 //==================================================================

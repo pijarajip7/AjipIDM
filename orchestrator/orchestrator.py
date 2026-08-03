@@ -39,6 +39,17 @@ DEFAULT_POLL_INTERVAL_SECONDS = 5
 DEFAULT_HANDOFF_FILENAME = "AjipIDM_Handoff.csv"
 FLAT_WAIT_WARN_INTERVAL_SECONDS = 30
 
+# Heartbeat — detects an account with no EA attached/running (see
+# check_ea_heartbeat). Grace period covers the time between mt5.login()
+# returning and the EA's own InitStructure() finishing on the new account;
+# timeout is how stale a heartbeat can get before we consider the EA gone;
+# warn-repeat throttles the log line so a stuck account doesn't spam it
+# every poll cycle.
+DEFAULT_HEARTBEAT_FILENAME = "AjipIDM_Heartbeat.csv"
+DEFAULT_HEARTBEAT_GRACE_SECONDS = 60
+DEFAULT_HEARTBEAT_TIMEOUT_SECONDS = 90
+HEARTBEAT_WARN_REPEAT_SECONDS = 60
+
 HANDOFF_HISTORY_HEADER = "handled_at,login,reason,pnl,symbol,magic,event_time,outcome,next_login\n"
 
 
@@ -53,6 +64,9 @@ def load_config(path):
     cfg.setdefault("poll_interval_seconds", DEFAULT_POLL_INTERVAL_SECONDS)
     cfg.setdefault("handoff_filename", DEFAULT_HANDOFF_FILENAME)
     cfg.setdefault("mt5_terminal_path", None)
+    cfg.setdefault("heartbeat_filename", DEFAULT_HEARTBEAT_FILENAME)
+    cfg.setdefault("heartbeat_grace_seconds", DEFAULT_HEARTBEAT_GRACE_SECONDS)
+    cfg.setdefault("heartbeat_timeout_seconds", DEFAULT_HEARTBEAT_TIMEOUT_SECONDS)
     return cfg
 
 
@@ -75,7 +89,7 @@ def today_str():
     return datetime.date.today().isoformat()
 
 
-def parse_handoff_file(path):
+def parse_kv_file(path):
     data = {}
     with open(path, "r") as f:
         for line in f:
@@ -117,7 +131,7 @@ def mt5_login(account, terminal_path):
     return True
 
 
-def write_live_status(accounts, state):
+def write_live_status(accounts, state, ea_status):
     # Best-effort snapshot for the dashboard (a separate process with no MT5
     # connection of its own) to read. Swallows errors so a transient API
     # hiccup here never takes down the rotation loop itself — the dashboard
@@ -150,6 +164,9 @@ def write_live_status(accounts, state):
             "positions": positions_payload,
             "rotation_index": state["current_index"],
             "rotation_size": len(accounts),
+            "ea_alive": ea_status["alive"],
+            "ea_status_detail": ea_status["detail"],
+            "ea_heartbeat_age_seconds": ea_status["age_seconds"],
         }
         tmp_path = LIVE_STATUS_PATH + ".tmp"
         with open(tmp_path, "w") as f:
@@ -179,6 +196,47 @@ def append_handoff_history(data, outcome, next_login):
             outcome,
             next_login,
         ])
+
+
+def check_ea_heartbeat(cfg, current_login, switch_time):
+    # Detects an account with no EA attached (or attached to the wrong
+    # chart/symbol, or crashed) — mt5.login() only authenticates the
+    # terminal, it has no idea whether anything is actually trading.
+    # Freshness is judged by the heartbeat file's own filesystem mtime, NOT
+    # the "time=" field written inside it — that field is the EA's broker
+    # SERVER time, which can be hours off from this VPS's local clock.
+    # mtime is set by the OS on this same machine at write time, so it's
+    # directly comparable to time.time() with no timezone conversion needed.
+    try:
+        now = time.time()
+        grace = cfg["heartbeat_grace_seconds"]
+        if now - switch_time < grace:
+            return {"alive": True, "detail": "within grace period after switch", "age_seconds": None}
+
+        path = os.path.join(common_files_dir(), cfg["heartbeat_filename"])
+        if not os.path.exists(path):
+            return {"alive": False,
+                    "detail": "no heartbeat file — EA may not be attached to any chart on this terminal",
+                    "age_seconds": None}
+
+        age = now - os.path.getmtime(path)
+        data = parse_kv_file(path)
+        hb_login = data.get("login")
+        timeout = cfg["heartbeat_timeout_seconds"]
+
+        if hb_login != str(current_login):
+            return {"alive": False,
+                    "detail": f"heartbeat still shows login={hb_login} (expected {current_login}) — "
+                              f"EA not yet running on this account",
+                    "age_seconds": age}
+        if age > timeout:
+            return {"alive": False,
+                    "detail": f"heartbeat stale ({age:.0f}s old, timeout {timeout}s) — EA may have stopped",
+                    "age_seconds": age}
+
+        return {"alive": True, "detail": "ok", "age_seconds": age}
+    except Exception as exc:
+        return {"alive": None, "detail": f"heartbeat check failed: {exc}", "age_seconds": None}
 
 
 def positions_count(symbol_filter=None, magic_filter=None):
@@ -213,7 +271,7 @@ def pick_next_account(accounts, maxed_logins_today, current_index):
 
 
 def handle_handoff(cfg, state, accounts, handoff_path):
-    data = parse_handoff_file(handoff_path)
+    data = parse_kv_file(handoff_path)
     login = data.get("login")
     reason = data.get("reason", "?")
     pnl = data.get("pnl", "?")
@@ -250,7 +308,7 @@ def handle_handoff(cfg, state, accounts, handoff_path):
     append_handoff_history(data, outcome="SWITCHED", next_login=next_login)
     state["current_index"] = next_idx
     save_state(state)
-    write_live_status(accounts, state)
+    return True  # tells main() to reset the heartbeat grace period for the new account
 
 
 def main():
@@ -265,7 +323,13 @@ def main():
         print("[orchestrator] Initial login failed, aborting.", flush=True)
         sys.exit(1)
     save_state(state)
-    write_live_status(accounts, state)
+
+    # switch_time anchors the heartbeat grace period (see check_ea_heartbeat)
+    # — reset on every account switch, and also set at startup so a freshly
+    # (re)started orchestrator gives the EA a moment to attach/init before
+    # warning. last_heartbeat_warn_time throttles the repeated log line.
+    switch_time = time.time()
+    last_heartbeat_warn_time = 0.0
 
     last_seen_day = today_str()
     print(f"[orchestrator] Watching for handoff signal '{cfg['handoff_filename']}' "
@@ -284,14 +348,24 @@ def main():
             handoff_path = os.path.join(common_files_dir(), cfg["handoff_filename"])
             if os.path.exists(handoff_path):
                 try:
-                    handle_handoff(cfg, state, accounts, handoff_path)
+                    if handle_handoff(cfg, state, accounts, handoff_path):
+                        switch_time = time.time()
+                        last_heartbeat_warn_time = 0.0  # let a warning for the NEW account fire promptly
                 except Exception as exc:
                     print(f"[orchestrator] ERROR handling handoff: {exc}", flush=True)
+
+            current_login = accounts[state["current_index"]]["login"]
+            ea_status = check_ea_heartbeat(cfg, current_login, switch_time)
+            if ea_status["alive"] is False:
+                now = time.time()
+                if now - last_heartbeat_warn_time > HEARTBEAT_WARN_REPEAT_SECONDS:
+                    print(f"[orchestrator] WARNING: {ea_status['detail']}", flush=True)
+                    last_heartbeat_warn_time = now
 
             # Live snapshot for the dashboard — every cycle, not just on
             # handoff events, so balance/equity/floating PnL stay current
             # while the account just sits there trading.
-            write_live_status(accounts, state)
+            write_live_status(accounts, state, ea_status)
 
             time.sleep(cfg["poll_interval_seconds"])
     except KeyboardInterrupt:

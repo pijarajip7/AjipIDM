@@ -142,6 +142,19 @@ def render_live_panel(poll_interval_seconds):
     if age_seconds > poll_interval_seconds * STALE_MULTIPLIER:
         st.warning("Stale — orchestrator.py may not be running.")
 
+    # EA heartbeat — separate from the staleness check above: that one tells
+    # you orchestrator.py itself is down, this one tells you the EA isn't
+    # attached/running on the currently active account even though
+    # orchestrator.py and the account login are both fine. Missing keys
+    # (.get with None default) means an older live_status.json written
+    # before this field existed — treat as unknown, not a failure.
+    ea_alive = live.get("ea_alive")
+    ea_detail = live.get("ea_status_detail", "unknown")
+    if ea_alive is False:
+        st.error(f"EA not detected on this account: {ea_detail}")
+    elif ea_alive is None and "ea_alive" in live:
+        st.info(f"EA status unknown: {ea_detail}")
+
     cols = st.columns(5)
     cols[0].metric("Active login", live["current_login"])
     cols[1].metric("Balance", f"{live['balance']:.2f}")

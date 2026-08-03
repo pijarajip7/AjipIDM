@@ -49,6 +49,7 @@ input int              InpPanelY      = 50;               // Panel Y offset (px)
 input bool             InpEnableLog   = true;              // Print diagnostic/debug messages to the Experts log
 input bool             InpHandoffEnabled = false;                    // Write a handoff signal file when daily target/max-loss is hit (for an external multi-account rotation orchestrator)
 input string           InpHandoffFile    = "AjipIDM_Handoff.csv";    // Filename written to the terminal's shared Common\Files folder (FILE_COMMON)
+input string           InpHeartbeatFile  = "AjipIDM_Heartbeat.csv";  // "I'm alive on THIS account" file, written every ~30s while InpHandoffEnabled — lets the orchestrator detect an account with no EA attached
 
 //--- AjipIDM module includes (order matters: globals first, then deps) ---
 #include "AjipIDM_Globals.mqh"
@@ -121,6 +122,11 @@ void OnDeinit(const int reason)
 //==================================================================
 void OnTick()
   {
+   // Heartbeat — self-throttled (HEARTBEAT_INTERVAL_SECONDS), safe to call
+   // every tick. Only orchestrator.py reads this; a no-op if
+   // InpHandoffEnabled=false (standalone single-account run).
+   WriteHeartbeat();
+
    // MFE/MAE — update every tick (not gated by new-bar) so intra-bar
    // excursions are captured, not just the closed-bar extreme.
    UpdateMfeMae();

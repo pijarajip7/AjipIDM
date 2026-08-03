@@ -139,6 +139,11 @@ double         g_batchMaeSum         = 0.0;
 // Bar tracking
 datetime       g_lastBarTime = 0;  // for new-bar detection within OnTick
 
+// Heartbeat — throttle for WriteHeartbeat (AjipIDM_Trade.mqh), called every
+// tick but only actually writes once per HEARTBEAT_INTERVAL_SECONDS.
+const int      HEARTBEAT_INTERVAL_SECONDS = 30;
+datetime       g_lastHeartbeatTime = 0;
+
 // HTF context — structure/idm engine, always active (drives the equilibrium
 // filter for every entry; see AjipIDM_HtfContext.mqh).
 ENUM_TREND     g_htfTrend          = TREND_NONE;
