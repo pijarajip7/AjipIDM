@@ -60,8 +60,8 @@ void DetectPullback(MqlRates &bar)
          if(bar.high > g_outsideBar.high)
            {
             // Continuation UP: base.high (before outside bar) = SH, outside.low = SL
-            AddPbSwing(g_base.high, g_base.time, true);
-            AddPbSwing(g_outsideBar.low, g_outsideBar.time, false);
+            AddPbSwing(g_base.high, g_base.low, g_base.time, true);
+            AddPbSwing(g_outsideBar.low, g_outsideBar.high, g_outsideBar.time, false);
             g_outsidePending = false;
             g_base.high = bar.high;
             g_base.low  = bar.low;
@@ -70,7 +70,7 @@ void DetectPullback(MqlRates &bar)
          else if(bar.low < g_outsideBar.low)
            {
             // Reversal DOWN: commit outside.high as SH
-            AddPbSwing(g_outsideBar.high, g_outsideBar.time, true);
+            AddPbSwing(g_outsideBar.high, g_outsideBar.low, g_outsideBar.time, true);
             g_outsidePending = false;
             g_phase = PHASE_DOWN;
             g_base.high = bar.high;
@@ -94,8 +94,8 @@ void DetectPullback(MqlRates &bar)
          if(bar.low < g_outsideBar.low)
            {
             // Continuation DOWN: base.low (before outside bar) = SL, outside.high = SH
-            AddPbSwing(g_base.low, g_base.time, false);
-            AddPbSwing(g_outsideBar.high, g_outsideBar.time, true);
+            AddPbSwing(g_base.low, g_base.high, g_base.time, false);
+            AddPbSwing(g_outsideBar.high, g_outsideBar.low, g_outsideBar.time, true);
             g_outsidePending = false;
             g_base.high = bar.high;
             g_base.low  = bar.low;
@@ -104,7 +104,7 @@ void DetectPullback(MqlRates &bar)
          else if(bar.high > g_outsideBar.high)
            {
             // Reversal UP: commit outside.low as SL
-            AddPbSwing(g_outsideBar.low, g_outsideBar.time, false);
+            AddPbSwing(g_outsideBar.low, g_outsideBar.high, g_outsideBar.time, false);
             g_outsidePending = false;
             g_phase = PHASE_UP;
             g_base.high = bar.high;
@@ -153,7 +153,7 @@ void DetectPullback(MqlRates &bar)
       // Pullback DOWN: bar low breaks base low → record HI, switch phase
       else if(bar.low < g_base.low)
         {
-         AddPbSwing(g_base.high, g_base.time, true);
+         AddPbSwing(g_base.high, g_base.low, g_base.time, true);
          g_phase = PHASE_DOWN;
          g_base.high = bar.high;
          g_base.low  = bar.low;
@@ -172,7 +172,7 @@ void DetectPullback(MqlRates &bar)
       // Pullback UP: bar high breaks base high → record LO, switch phase
       else if(bar.high > g_base.high)
         {
-         AddPbSwing(g_base.low, g_base.time, false);
+         AddPbSwing(g_base.low, g_base.high, g_base.time, false);
          g_phase = PHASE_UP;
          g_base.high = bar.high;
          g_base.low  = bar.low;

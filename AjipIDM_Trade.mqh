@@ -429,13 +429,14 @@ void ResetSwings()
    ArrayResize(g_swings, 0);
   }
 
-void AddSwing(double price, datetime time, bool isHigh)
+void AddSwing(double price, double zonePrice, datetime time, bool isHigh)
   {
    int n = ArraySize(g_swings);
    ArrayResize(g_swings, n + 1);
-   g_swings[n].price  = price;
-   g_swings[n].time   = time;
-   g_swings[n].isHigh = isHigh;
+   g_swings[n].price     = price;
+   g_swings[n].zonePrice = zonePrice;
+   g_swings[n].time      = time;
+   g_swings[n].isHigh    = isHigh;
   }
 
 string TrendString(ENUM_TREND t)

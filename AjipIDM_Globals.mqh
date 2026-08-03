@@ -28,6 +28,8 @@ enum ENUM_LIMIT_STATUS
 struct Swing
   {
    double   price;       // swing price (high for SH, low for SL)
+   double   zonePrice;   // OPPOSITE extreme of the SAME bar (low for SH, high for SL) —
+                          // looser entry-trigger boundary, see g_idmZonePrice below
    datetime time;        // bar time of the swing
    bool     isHigh;      // true = SH, false = SL
   };
@@ -70,8 +72,17 @@ bool           g_outsidePending = false;
 BaseCandle     g_outsideBar;       // the outside bar (both extremes)
 
 // idm tracking
-double         g_idmPrice = 0.0;   // current idm level
+double         g_idmPrice     = 0.0; // current idm level — gates structural reversal (CheckIdmTaken/CheckAggressiveIdmTouch)
+double         g_idmZonePrice = 0.0; // opposite extreme of the idm bar — looser entry-trigger boundary (CheckIdmZoneEntry/CheckAggressiveZoneEntry)
+datetime       g_idmTime      = 0;   // bar time g_idmPrice/g_idmZonePrice refer to — identifies "which idm level", used as the one-shot entry key (g_idmZoneEntryFiredTime)
 bool           g_idmTaken = false; // idm has been taken this cycle
+
+// One-shot entry guard — decoupled from reversal (g_idmTaken above). Once an
+// entry fires (via CheckAggressiveZoneEntry or CheckIdmZoneEntry) for a given
+// idm level, this is set to that level's g_idmTime so neither path fires
+// again for the SAME level. A new idm level (new g_idmTime from UpdateIdm,
+// whether from a fresh reversal or further structure) naturally re-arms it.
+datetime       g_idmZoneEntryFiredTime = 0;
 
 // Aggressive entry — bar time of the currently-forming bar for which an
 // aggressive touch entry already fired. Guards against re-firing multiple

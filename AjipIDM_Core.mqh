@@ -61,13 +61,13 @@ bool InitStructure()
 
    if(g_trend == TREND_DOWN)
      {
-      // Downtrend origin = highest high
-      AddPbSwing(highest, rates[originIdx].time, true);
+      // Downtrend origin = highest high; zonePrice = same bar's low
+      AddPbSwing(highest, rates[originIdx].low, rates[originIdx].time, true);
      }
    else
      {
-      // Uptrend origin = lowest low
-      AddPbSwing(lowest, rates[originIdx].time, false);
+      // Uptrend origin = lowest low; zonePrice = same bar's high
+      AddPbSwing(lowest, rates[originIdx].high, rates[originIdx].time, false);
      }
    g_base.high  = rates[originIdx].high;
    g_base.low   = rates[originIdx].low;

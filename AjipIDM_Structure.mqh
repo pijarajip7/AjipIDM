@@ -13,7 +13,7 @@ void BuildSimpleStructure()
    if(npb == 0) return;
 
    // Origin = first pullback swing (always committed)
-   AddSwing(g_pbSwings[0].price, g_pbSwings[0].time, g_pbSwings[0].isHigh);
+   AddSwing(g_pbSwings[0].price, g_pbSwings[0].zonePrice, g_pbSwings[0].time, g_pbSwings[0].isHigh);
    // Track last committed index per type + last committed overall
    int lastSHIdx = -1;
    int lastSLIdx = -1;
@@ -26,7 +26,8 @@ void BuildSimpleStructure()
    // Commit each pullback swing independently if trend rule satisfied
    for(int i = 1; i < npb; i++)
      {
-      double price = g_pbSwings[i].price;
+      double price     = g_pbSwings[i].price;
+      double zonePrice = g_pbSwings[i].zonePrice;
       datetime tm  = g_pbSwings[i].time;
       bool isHigh  = g_pbSwings[i].isHigh;
 
@@ -69,7 +70,7 @@ void BuildSimpleStructure()
             // SHU: commit if first SH or HH
             if(lastSHIdx < 0 || price > g_swings[lastSHIdx].price)
               {
-               AddSwing(price, tm, true);
+               AddSwing(price, zonePrice, tm, true);
                lastSHIdx = ArraySize(g_swings) - 1;
                lastIdx   = lastSHIdx;
               }
@@ -79,7 +80,7 @@ void BuildSimpleStructure()
             // SLU: commit if first SL or HL
             if(lastSLIdx < 0 || price > g_swings[lastSLIdx].price)
               {
-               AddSwing(price, tm, false);
+               AddSwing(price, zonePrice, tm, false);
                lastSLIdx = ArraySize(g_swings) - 1;
                lastIdx   = lastSLIdx;
               }
@@ -92,7 +93,7 @@ void BuildSimpleStructure()
             // SHD: commit if first SH or LH
             if(lastSHIdx < 0 || price < g_swings[lastSHIdx].price)
               {
-               AddSwing(price, tm, true);
+               AddSwing(price, zonePrice, tm, true);
                lastSHIdx = ArraySize(g_swings) - 1;
                lastIdx   = lastSHIdx;
               }
@@ -102,7 +103,7 @@ void BuildSimpleStructure()
             // SLD: commit if first SL or LL
             if(lastSLIdx < 0 || price < g_swings[lastSLIdx].price)
               {
-               AddSwing(price, tm, false);
+               AddSwing(price, zonePrice, tm, false);
                lastSLIdx = ArraySize(g_swings) - 1;
                lastIdx   = lastSLIdx;
               }
@@ -116,13 +117,14 @@ void BuildSimpleStructure()
 //==================================================================
 // PULLBACK SWING ARRAY HELPERS
 //==================================================================
-void AddPbSwing(double price, datetime time, bool isHigh)
+void AddPbSwing(double price, double zonePrice, datetime time, bool isHigh)
   {
    int n = ArraySize(g_pbSwings);
    ArrayResize(g_pbSwings, n + 1);
-   g_pbSwings[n].price  = price;
-   g_pbSwings[n].time   = time;
-   g_pbSwings[n].isHigh = isHigh;
+   g_pbSwings[n].price     = price;
+   g_pbSwings[n].zonePrice = zonePrice;
+   g_pbSwings[n].time      = time;
+   g_pbSwings[n].isHigh    = isHigh;
   }
 
 void ResetPbSwings()
@@ -153,13 +155,17 @@ void UpdateIdm()
    int n = ArraySize(g_swings);
    if(n < 1)
      {
-      g_idmPrice = 0.0;
+      g_idmPrice     = 0.0;
+      g_idmZonePrice = 0.0;
+      g_idmTime      = 0;
       return;
      }
    if(n == 1)
      {
       // Origin is always the initial idm
-      g_idmPrice = g_swings[0].price;
+      g_idmPrice     = g_swings[0].price;
+      g_idmZonePrice = g_swings[0].zonePrice;
+      g_idmTime      = g_swings[0].time;
       return;
      }
 
@@ -179,7 +185,9 @@ void UpdateIdm()
         {
          if(!g_swings[i].isHigh) // this is an SL with SH after it
            {
-            g_idmPrice = g_swings[i].price;
+            g_idmPrice     = g_swings[i].price;
+            g_idmZonePrice = g_swings[i].zonePrice;
+            g_idmTime      = g_swings[i].time;
             return;
            }
         }
@@ -190,13 +198,17 @@ void UpdateIdm()
         {
          if(g_swings[i].isHigh) // this is a SH with SL after it
            {
-            g_idmPrice = g_swings[i].price;
+            g_idmPrice     = g_swings[i].price;
+            g_idmZonePrice = g_swings[i].zonePrice;
+            g_idmTime      = g_swings[i].time;
             return;
            }
         }
      }
 
-   g_idmPrice = 0.0;
+   g_idmPrice     = 0.0;
+   g_idmZonePrice = 0.0;
+   g_idmTime      = 0;
   }
 
 #endif // AJIPIDM_STRUCTURE_MQH

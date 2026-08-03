@@ -259,21 +259,24 @@ bool HtfEntryAllowed(bool isBuy, double entryPrice)
   }
 
 //==================================================================
-// CHECK AGGRESSIVE IDM TOUCH (per-tick, bar NOT closed yet)
-// InpUseAggressiveEntry mode: the instant price touches LTF idm intrabar,
-// reverse the LTF structure RIGHT NOW using the last CLOSED bar as boundary
-// (NOT the still-forming touch bar) — origin + retroactive structure are
-// built purely from final bar data, so there's no repaint risk. Gating comes
-// from HtfEntryAllowed (HTF-referenced equilibrium filter, same as
-// confirmation entries) — the order itself is fixed-lot, no SL/TP, opened
-// right away once gating passes.
+// CHECK AGGRESSIVE IDM TOUCH (per-tick, bar NOT closed yet) — REVERSAL ONLY.
+// InpUseAggressiveEntry mode: the instant price touches/sweeps the FULL LTF
+// idm level intrabar, reverse the LTF structure RIGHT NOW using the last
+// CLOSED bar as boundary (NOT the still-forming touch bar) — origin +
+// retroactive structure are built purely from final bar data, so there's no
+// repaint risk.
+//
+// Entry is fully decoupled from this reversal — see CheckAggressiveZoneEntry
+// below, which fires off the looser g_idmZonePrice boundary independently
+// and doesn't need this reversal to have happened yet (it's usually reached
+// LATER, as price continues past the zone toward the full sweep).
 //
 // The still-forming touch bar itself is untouched here; once it actually
 // closes, it flows through the normal UpdateStructure() path in OnTick
 // like any other bar, extending the LTF structure further.
 //
-// Guarded by g_aggressiveFiredBarTime so only ONE aggressive entry fires
-// per forming bar, even if price oscillates around idm multiple times.
+// Guarded by g_aggressiveFiredBarTime so only ONE early reversal fires per
+// forming bar, even if price oscillates around idm multiple times.
 //==================================================================
 void CheckAggressiveIdmTouch()
   {
@@ -288,13 +291,49 @@ void CheckAggressiveIdmTouch()
    bool touchSell = (g_trend == TREND_DOWN && bid > g_idmPrice);
    if(!touchBuy && !touchSell) return;
 
-   bool isBuy = touchBuy;
-
    MqlRates rates[];
    ArraySetAsSeries(rates, true);
    if(CopyRates(_Symbol, InpTimeframe, 0, 2, rates) < 2) return;
 
    if(rates[0].time == g_aggressiveFiredBarTime) return; // already fired for this forming bar
+
+   double oldIdm = g_idmPrice; // LTF level being swept — for logging only
+   g_aggressiveFiredBarTime = rates[0].time;
+
+   if(InpEnableLog) PrintFormat("AjipIDM: AGGRESSIVE %s idm touch @ %.5f — reversing early using last closed bar as boundary.",
+               touchBuy ? "BUY" : "SELL", oldIdm);
+
+   // rates[1] = last CLOSED bar (NOT the forming touch bar) — keeps origin
+   // scan + retroactive rebuild on final data only.
+   if(touchBuy)
+      ReverseToDowntrend(rates[1]);
+   else
+      ReverseToUptrend(rates[1]);
+  }
+
+//==================================================================
+// CHECK AGGRESSIVE ZONE ENTRY (per-tick) — ENTRY, decoupled from reversal.
+// Fires the instant price touches the idm bar's OPPOSITE extreme
+// (g_idmZonePrice) — a looser boundary than the full idm sweep
+// (g_idmPrice), reached FIRST as price retraces toward it. Independent of
+// CheckAggressiveIdmTouch/CheckIdmTaken — may fire before, after, or
+// without that reversal ever happening for this level. One-shot per idm
+// level (keyed on g_idmTime), shared with CheckIdmZoneEntry so only ONE
+// entry fires per level regardless of which path catches it first.
+//==================================================================
+void CheckAggressiveZoneEntry()
+  {
+   if(!InpUseAggressiveEntry) return;
+   if(g_idmZonePrice <= 0.0) return;
+   if(g_initMode) return;
+   if(g_idmZoneEntryFiredTime == g_idmTime) return; // already entered for this idm level
+
+   // Touch uses Bid — same convention as CheckAggressiveIdmTouch.
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   bool touchBuy  = (g_trend == TREND_UP   && bid <= g_idmZonePrice);
+   bool touchSell = (g_trend == TREND_DOWN && bid >= g_idmZonePrice);
+   if(!touchBuy && !touchSell) return;
+
    if(DailyLimitReached()) return;
    if(!InSession()) return;
    if(InNewsBlackout()) return;
@@ -302,22 +341,15 @@ void CheckAggressiveIdmTouch()
    MqlTick tick;
    if(!SymbolInfoTick(_Symbol, tick)) return;
 
-   double oldIdm = g_idmPrice; // LTF level being swept — for logging only
-   g_aggressiveFiredBarTime = rates[0].time;
-
-   if(InpEnableLog) PrintFormat("AjipIDM: AGGRESSIVE %s idm touch @ %.5f — reversing early using last closed bar as boundary.",
-               isBuy ? "BUY" : "SELL", oldIdm);
-
-   // rates[1] = last CLOSED bar (NOT the forming touch bar) — keeps origin
-   // scan + retroactive rebuild on final data only.
-   if(isBuy)
-      ReverseToDowntrend(rates[1]);
-   else
-      ReverseToUptrend(rates[1]);
-
+   bool   isBuy         = touchBuy;
    double entryEstimate = isBuy ? tick.ask : tick.bid;
 
    if(!HtfEntryAllowed(isBuy, entryEstimate)) return;
+
+   g_idmZoneEntryFiredTime = g_idmTime; // one-shot, set before OpenTrade
+
+   if(InpEnableLog) PrintFormat("AjipIDM: AGGRESSIVE ZONE %s touch @ %.5f (idm zone=%.5f) — entering.",
+               isBuy ? "BUY" : "SELL", bid, g_idmZonePrice);
 
    ulong ticket = OpenTrade(isBuy, entryEstimate);
    if(ticket > 0)
@@ -325,10 +357,12 @@ void CheckAggressiveIdmTouch()
   }
 
 //==================================================================
-// CHECK IDM TAKEN (LTF entry decision — unchanged: idm taken + no body
-// break → fade the sweep). Equilibrium gating now comes from
-// HtfEntryAllowed (HTF-referenced) instead of LTF structure; entry itself
-// is fixed-lot, no SL/TP.
+// CHECK IDM TAKEN (bar-close) — REVERSAL ONLY. Fires unconditionally
+// whenever the FULL idm level is swept intrabar (bar.low/bar.high crosses
+// g_idmPrice), regardless of where the bar closes — exactly as before.
+// Entry is fully decoupled now — see CheckIdmZoneEntry below, which fires
+// independently off the looser g_idmZonePrice boundary and doesn't need
+// this reversal to have happened yet.
 // Uptrend: candle low < idm(SLU_last) → idm taken
 // Downtrend: candle high > idm(SHD_last) → idm taken
 //==================================================================
@@ -336,120 +370,97 @@ void CheckIdmTaken(MqlRates &bar)
   {
    if(g_idmTaken) return;
    if(g_idmPrice <= 0.0) return;
-   // Multi-position: no HasOpenPosition() check
 
-   bool taken    = false;
-   bool doEntry  = false;
-   bool entryBuy = false;
+   bool taken = false;
 
    if(g_trend == TREND_UP)
      {
       // idm = last SLU. Taken when low penetrates below it.
-      if(bar.low < g_idmPrice)
-        {
-         taken = true;
-         if(bar.close > g_idmPrice)
-           {
-            // No body break → BUY (fade the sweep)
-            doEntry  = true;
-            entryBuy = true;
-           }
-        }
+      if(bar.low < g_idmPrice) taken = true;
      }
    else if(g_trend == TREND_DOWN)
      {
       // idm = last SHD. Taken when high penetrates above it.
-      if(bar.high > g_idmPrice)
-        {
-         taken = true;
-         if(bar.close < g_idmPrice)
-           {
-            // No body break → SELL (fade the sweep)
-            doEntry  = true;
-            entryBuy = false;
-           }
-        }
+      if(bar.high > g_idmPrice) taken = true;
      }
 
    if(!taken) return;
 
    g_idmTaken = true;
 
-   // This bar already had an aggressive touch entry (CheckAggressiveIdmTouch
-   // reverses the trend intrabar using the SAME bar-to-be-closed as boundary
-   // context) — without this guard, this closed-bar pass can independently
-   // find "taken" on the freshly-reversed trend and open a SECOND entry for
-   // what is effectively the same event. Structure/reversal still proceeds
-   // normally below; only the entry itself is suppressed for this bar.
-   bool alreadyAggressive = InpUseAggressiveEntry && (bar.time == g_aggressiveFiredBarTime);
-
    if(InpEnableLog) PrintFormat("AjipIDM: IDM TAKEN. Trend was %s, idm=%.5f, bar close=%.5f",
                TrendString(g_trend), g_idmPrice, bar.close);
 
    if(g_trend == TREND_UP)
-     {
       // Trend changes to DOWN. Build downtrend from last SHU (= SHD0).
       ReverseToDowntrend(bar);
+   else if(g_trend == TREND_DOWN)
+      // Trend changes to UP. Build uptrend from last SLD (= SLU0).
+      ReverseToUptrend(bar);
+  }
 
-      if(alreadyAggressive)
+//==================================================================
+// CHECK IDM ZONE ENTRY (bar-close) — ENTRY, decoupled from reversal.
+// Mirrors CheckAggressiveZoneEntry but evaluated once per closed bar using
+// bar.low/bar.high instead of a live tick. Looser than the old sweep-based
+// trigger: only needs bar.low/bar.high to reach the idm bar's OPPOSITE
+// extreme (g_idmZonePrice), not the full idm level — but still requires the
+// close to hold on the favorable side of the full idm level (g_idmPrice),
+// same invalidation as the old "no body break" check. One-shot per idm
+// level (keyed on g_idmTime), shared with CheckAggressiveZoneEntry.
+// Uptrend:   bar.low  < idm-bar.high  AND bar.close > idm.low  → BUY
+// Downtrend: bar.high > idm-bar.low   AND bar.close < idm.high → SELL
+//==================================================================
+void CheckIdmZoneEntry(MqlRates &bar)
+  {
+   if(g_idmZonePrice <= 0.0) return;
+   if(g_initMode) return;
+   if(g_idmZoneEntryFiredTime == g_idmTime) return; // already entered for this idm level
+
+   bool doEntry  = false;
+   bool entryBuy = false;
+
+   if(g_trend == TREND_UP)
+     {
+      if(bar.low < g_idmZonePrice && bar.close > g_idmPrice)
         {
-         if(InpEnableLog) PrintFormat("AjipIDM: BUY skip — already entered aggressively this bar.");
+         doEntry  = true;
+         entryBuy = true;
         }
-      else if(doEntry && entryBuy && !g_initMode)
-        {
-         if(DailyLimitReached())
-           {
-            if(InpEnableLog) PrintFormat("AjipIDM: BUY skip — daily limit reached.");
-           }
-         else if(!InSession())
-           {
-            if(InpEnableLog) PrintFormat("AjipIDM: BUY skip — outside trading session.");
-           }
-         else if(InNewsBlackout())
-           {
-            if(InpEnableLog) PrintFormat("AjipIDM: BUY skip — news blackout.");
-           }
-         else if(HtfEntryAllowed(true, bar.close))
-           {
-            ulong ticket = OpenTrade(true, bar.close);
-            if(ticket > 0)
-               AddEntry(ticket, 1);
-           }
-        }
-      // Else: body break or init mode → no entry, continue downtrend
      }
    else if(g_trend == TREND_DOWN)
      {
-      // Trend changes to UP. Build uptrend from last SLD (= SLU0).
-      ReverseToUptrend(bar);
-
-      if(alreadyAggressive)
+      if(bar.high > g_idmZonePrice && bar.close < g_idmPrice)
         {
-         if(InpEnableLog) PrintFormat("AjipIDM: SELL skip — already entered aggressively this bar.");
+         doEntry  = true;
+         entryBuy = false;
         }
-      else if(doEntry && !entryBuy && !g_initMode)
-        {
-         if(DailyLimitReached())
-           {
-            if(InpEnableLog) PrintFormat("AjipIDM: SELL skip — daily limit reached.");
-           }
-         else if(!InSession())
-           {
-            if(InpEnableLog) PrintFormat("AjipIDM: SELL skip — outside trading session.");
-           }
-         else if(InNewsBlackout())
-           {
-            if(InpEnableLog) PrintFormat("AjipIDM: SELL skip — news blackout.");
-           }
-         else if(HtfEntryAllowed(false, bar.close))
-           {
-            ulong ticket = OpenTrade(false, bar.close);
-            if(ticket > 0)
-               AddEntry(ticket, -1);
-           }
-        }
-      // Else: body break → no entry, continue uptrend
      }
+
+   if(!doEntry) return;
+
+   if(DailyLimitReached())
+     {
+      if(InpEnableLog) PrintFormat("AjipIDM: %s skip — daily limit reached.", entryBuy ? "BUY" : "SELL");
+      return;
+     }
+   if(!InSession())
+     {
+      if(InpEnableLog) PrintFormat("AjipIDM: %s skip — outside trading session.", entryBuy ? "BUY" : "SELL");
+      return;
+     }
+   if(InNewsBlackout())
+     {
+      if(InpEnableLog) PrintFormat("AjipIDM: %s skip — news blackout.", entryBuy ? "BUY" : "SELL");
+      return;
+     }
+   if(!HtfEntryAllowed(entryBuy, bar.close)) return;
+
+   g_idmZoneEntryFiredTime = g_idmTime;
+
+   ulong ticket = OpenTrade(entryBuy, bar.close);
+   if(ticket > 0)
+      AddEntry(ticket, entryBuy ? 1 : -1);
   }
 
 //==================================================================

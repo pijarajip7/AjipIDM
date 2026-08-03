@@ -9,6 +9,7 @@
 void ReverseToDowntrend(MqlRates &takenBar)
   {
    double originPrice = 0.0;
+   double originZone   = 0.0; // opposite extreme (low) of the SAME origin bar
    datetime originTime = 0;
 
    // Scan actual bars from uptrend leg start to taken bar for TRUE highest high.
@@ -28,18 +29,21 @@ void ReverseToDowntrend(MqlRates &takenBar)
            {
             double hh = -DBL_MAX;
             datetime hhTime = 0;
+            double   hhLow  = 0.0;
             for(int i = 0; i < ArraySize(legBars); i++)
               {
                if(legBars[i].high > hh)
                  {
-                  hh = legBars[i].high;
+                  hh     = legBars[i].high;
                   hhTime = legBars[i].time;
+                  hhLow  = legBars[i].low;
                  }
               }
             if(hh > -DBL_MAX)
               {
                originPrice = hh;
                originTime  = hhTime;
+               originZone  = hhLow;
               }
            }
         }
@@ -54,6 +58,7 @@ void ReverseToDowntrend(MqlRates &takenBar)
          if(g_swings[i].isHigh)
            {
             originPrice = g_swings[i].price;
+            originZone  = g_swings[i].zonePrice;
             originTime  = g_swings[i].time;
             break;
            }
@@ -75,7 +80,7 @@ void ReverseToDowntrend(MqlRates &takenBar)
    // Reset structure: SHD0 = last SHU
    ResetSwings();
    ResetPbSwings();
-   AddPbSwing(originPrice, originTime, true);
+   AddPbSwing(originPrice, originZone, originTime, true);
 
    // Init pullback: after SH origin, price goes DOWN
    g_phase = PHASE_DOWN;
@@ -118,6 +123,7 @@ void ReverseToDowntrend(MqlRates &takenBar)
 void ReverseToUptrend(MqlRates &takenBar)
   {
    double originPrice = 0.0;
+   double originZone   = 0.0; // opposite extreme (high) of the SAME origin bar
    datetime originTime = 0;
 
    // Scan actual bars from downtrend leg start to taken bar for TRUE lowest low.
@@ -136,18 +142,21 @@ void ReverseToUptrend(MqlRates &takenBar)
            {
             double ll = DBL_MAX;
             datetime llTime = 0;
+            double   llHigh = 0.0;
             for(int i = 0; i < ArraySize(legBars); i++)
               {
                if(legBars[i].low < ll)
                  {
-                  ll = legBars[i].low;
+                  ll     = legBars[i].low;
                   llTime = legBars[i].time;
+                  llHigh = legBars[i].high;
                  }
               }
             if(ll < DBL_MAX)
               {
                originPrice = ll;
                originTime  = llTime;
+               originZone  = llHigh;
               }
            }
         }
@@ -162,6 +171,7 @@ void ReverseToUptrend(MqlRates &takenBar)
          if(!g_swings[i].isHigh)
            {
             originPrice = g_swings[i].price;
+            originZone  = g_swings[i].zonePrice;
             originTime  = g_swings[i].time;
             break;
            }
@@ -183,7 +193,7 @@ void ReverseToUptrend(MqlRates &takenBar)
    // Reset structure: SLU0 = last SLD
    ResetSwings();
    ResetPbSwings();
-   AddPbSwing(originPrice, originTime, false);
+   AddPbSwing(originPrice, originZone, originTime, false);
 
    // Init pullback: after SL origin, price goes UP
    g_phase = PHASE_UP;

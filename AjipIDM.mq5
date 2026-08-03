@@ -150,9 +150,12 @@ void OnTick()
          HtfCheckIdmTaken(htfRates[1]);
      }
 
-   // Aggressive entry — own per-tick check, runs every tick (not gated behind
-   // the new-bar early-return below) so the touch fires the instant price
-   // reaches idm, not only once the bar closes.
+   // Zone entry (aggressive) + aggressive reversal — own per-tick checks, run
+   // every tick (not gated behind the new-bar early-return below). Zone entry
+   // checked FIRST: g_idmZonePrice sits closer to price than the full
+   // g_idmPrice sweep, so it's reached first as price retraces toward it —
+   // entry is fully decoupled from reversal, see AjipIDM_Entry.mqh.
+   CheckAggressiveZoneEntry();
    CheckAggressiveIdmTouch();
 
    MqlRates rates[];
@@ -178,7 +181,9 @@ void OnTick()
    //    doesn't remove it — only a full close, via daily/session close-all)
    CheckEntryCleanup();
 
-   // 3. Check idm taken on the just-closed bar
+   // 3. Zone entry + idm taken (reversal) on the just-closed bar — entry
+   //    checked first, same reasoning as the aggressive/tick path above.
+   CheckIdmZoneEntry(rates[1]);
    CheckIdmTaken(rates[1]);
 
    // 4. Refresh info panel (trend + P/L)
