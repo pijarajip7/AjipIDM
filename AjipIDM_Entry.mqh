@@ -153,6 +153,13 @@ void CheckPartialClose()
 // positions are still running, not only after they're already closed.
 // Called every tick. After close-all, DailyLimitReached() (realized-only)
 // naturally blocks new entries for the rest of the day.
+//
+// Once hit, status stays HIT for the rest of the day (realized PnL doesn't
+// un-cross the threshold), so this keeps firing every tick — CloseAllAndFlushBatch
+// itself is already idempotent once flat (see FlushBatchIfDone). The handoff
+// signal (InpHandoffEnabled) needs its OWN one-shot guard on top of that,
+// keyed per day, so it's written exactly once per day, not spammed every
+// tick for the rest of the day.
 //==================================================================
 void CheckDailyCloseAll()
   {
@@ -164,12 +171,28 @@ void CheckDailyCloseAll()
       if(InpEnableLog) PrintFormat("AjipIDM: Daily TARGET reached (%.2f >= %.2f) — closing all positions.",
                   total, InpDailyMaxProfit);
       CloseAllAndFlushBatch("DAILY_TARGET");
+
+      static datetime lastHandoffDayProfit = 0;
+      datetime today = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
+      if(lastHandoffDayProfit != today)
+        {
+         lastHandoffDayProfit = today;
+         WriteHandoffSignal("DAILY_TARGET", total);
+        }
      }
    else if(status == LIMIT_STATUS_MAXLOSS_HIT)
      {
       if(InpEnableLog) PrintFormat("AjipIDM: Daily MAX LOSS reached (%.2f <= -%.2f) — closing all positions.",
                   total, InpDailyMaxLoss);
       CloseAllAndFlushBatch("DAILY_MAX_LOSS");
+
+      static datetime lastHandoffDayLoss = 0;
+      datetime today = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
+      if(lastHandoffDayLoss != today)
+        {
+         lastHandoffDayLoss = today;
+         WriteHandoffSignal("DAILY_MAX_LOSS", total);
+        }
      }
   }
 

@@ -9,3 +9,8 @@
 *~
 .vscode/
 .idea/
+
+# Orchestrator secrets/runtime state — never commit real credentials
+orchestrator/accounts.json
+orchestrator/state.json
+orchestrator/__pycache__/

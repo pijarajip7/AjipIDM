@@ -47,6 +47,8 @@ input ENUM_BASE_CORNER InpPanelCorner = CORNER_LEFT_UPPER; // Panel corner
 input int              InpPanelX      = 20;               // Panel X offset (px)
 input int              InpPanelY      = 50;               // Panel Y offset (px)
 input bool             InpEnableLog   = true;              // Print diagnostic/debug messages to the Experts log
+input bool             InpHandoffEnabled = false;                    // Write a handoff signal file when daily target/max-loss is hit (for an external multi-account rotation orchestrator)
+input string           InpHandoffFile    = "AjipIDM_Handoff.csv";    // Filename written to the terminal's shared Common\Files folder (FILE_COMMON)
 
 //--- AjipIDM module includes (order matters: globals first, then deps) ---
 #include "AjipIDM_Globals.mqh"

@@ -357,6 +357,38 @@ void WriteBatchCsv(const string reason)
   }
 
 //==================================================================
+// WRITE HANDOFF SIGNAL — for an external multi-account rotation
+// orchestrator (not part of this EA/MT5 — MQL5 has no API to switch the
+// terminal's own login). Written to the terminal's shared Common\Files
+// folder (FILE_COMMON) so an orchestrator polling that fixed location can
+// pick it up regardless of which account is currently logged in. Overwrites
+// any previous file — the orchestrator is expected to consume (delete) it
+// after acting, so a stale file is never mistaken for a new event. Called
+// once per day from CheckDailyCloseAll (AjipIDM_Entry.mqh) when the daily
+// target/max-loss is hit — this account should sit out the rest of the day.
+//==================================================================
+void WriteHandoffSignal(const string reason, double dailyTotal)
+  {
+   if(!InpHandoffEnabled) return;
+
+   int handle = FileOpen(InpHandoffFile, FILE_WRITE | FILE_TXT | FILE_ANSI | FILE_COMMON);
+   if(handle == INVALID_HANDLE)
+     {
+      if(InpEnableLog) PrintFormat("AjipIDM: WriteHandoffSignal — failed to open %s, error=%d", InpHandoffFile, GetLastError());
+      return;
+     }
+
+   string line = StringFormat("login=%d\nreason=%s\npnl=%.2f\nsymbol=%s\nmagic=%d\ntime=%s\n",
+                               (int)AccountInfoInteger(ACCOUNT_LOGIN), reason, dailyTotal, _Symbol, InpMagicNumber,
+                               TimeToString(TimeCurrent(), TIME_DATE | TIME_SECONDS));
+   FileWriteString(handle, line);
+   FileClose(handle);
+
+   if(InpEnableLog) PrintFormat("AjipIDM: Handoff signal written — login=%d reason=%s pnl=%.2f file=%s",
+               (int)AccountInfoInteger(ACCOUNT_LOGIN), reason, dailyTotal, InpHandoffFile);
+  }
+
+//==================================================================
 // RESET BATCH ACCUMULATOR — clear every per-batch counter after a flush,
 // ready for the next batch.
 //==================================================================
