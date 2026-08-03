@@ -324,12 +324,18 @@ void AccumulateBatchStats(const EntryTracker &e)
 
 //==================================================================
 // WRITE BATCH CSV — append ONE row summarizing the just-completed batch to
-// MQL5/Files/AjipIDM_Batches_<symbol>_<magic>.csv. Called only from
+// MQL5/Files/AjipIDM_Batches_<symbol>_<magic>_<login>.csv. Called only from
 // CloseAllAndFlushBatch, only when g_batchCount > 0 (never an empty row).
+// Login is included because this file lives in the TERMINAL's own Files
+// folder (not FILE_COMMON) — in a multi-account rotation setup (see
+// orchestrator/), the same terminal logs into different accounts over
+// time, so symbol+magic alone would mix every account's batches into one
+// file with no way to tell them apart.
 //==================================================================
 void WriteBatchCsv(const string reason)
   {
-   string fname  = "AjipIDM_Batches_" + _Symbol + "_" + IntegerToString(InpMagicNumber) + ".csv";
+   string fname  = "AjipIDM_Batches_" + _Symbol + "_" + IntegerToString(InpMagicNumber)
+                  + "_" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + ".csv";
    bool   exists = FileIsExist(fname);
    int    handle = FileOpen(fname, FILE_READ | FILE_WRITE | FILE_TXT | FILE_ANSI);
    if(handle == INVALID_HANDLE)
