@@ -133,7 +133,7 @@ double GetMonthPnL()
 //==================================================================
 void CaptureStartingBalance()
   {
-   if(InpFinalProfitTarget <= 0.0) return;
+   if(InpFinalProfitTarget <= 0.0 && InpFinalMaxLoss <= 0.0) return;
 
    if(InpStartingBalance > 0.0)
      {
@@ -196,6 +196,44 @@ void CheckFinalTargetCloseAll()
       lastLog = today;
      }
    CloseAllAndFlushBatch("FINAL_TARGET");
+  }
+
+//==================================================================
+// FINAL MAX LOSS REACHED — overall (non-daily) loss vs InpFinalMaxLoss,
+// measured from g_startingBalance. Mirrors FinalTargetReached: once
+// balance-since-baseline (+ any floating) crosses -InpFinalMaxLoss, closing
+// the losing positions realizes the loss into balance, so this naturally
+// stays true forever after — no separate persisted "hit" flag needed. This
+// is the account-level circuit breaker InpDailyMaxLoss/InpBatchMaxLoss don't
+// cover (both reset in scope — daily resets every day, batch resets every
+// batch — neither stops a multi-day losing streak from walking the account
+// into a prop-firm max-loss violation).
+//==================================================================
+bool FinalMaxLossReached()
+  {
+   if(InpFinalMaxLoss <= 0.0) return(false);
+   double total = (AccountInfoDouble(ACCOUNT_BALANCE) - g_startingBalance) + GetFloatingPnL();
+   return(total <= -InpFinalMaxLoss);
+  }
+
+//==================================================================
+// CHECK FINAL MAX LOSS CLOSE ALL — closes everything once FinalMaxLossReached().
+// Same permanent-stop semantics as CheckFinalTargetCloseAll (see there for
+// why no handoff signal is written).
+//==================================================================
+void CheckFinalMaxLossCloseAll()
+  {
+   if(!FinalMaxLossReached()) return;
+
+   static datetime lastLog = 0;
+   datetime today = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
+   if(lastLog != today)
+     {
+      if(InpEnableLog) PrintFormat("AjipIDM: FINAL MAX LOSS reached (balance=%.2f, baseline=%.2f, maxLoss=%.2f) — closing all positions, stopping permanently.",
+                  AccountInfoDouble(ACCOUNT_BALANCE), g_startingBalance, InpFinalMaxLoss);
+      lastLog = today;
+     }
+   CloseAllAndFlushBatch("FINAL_MAX_LOSS");
   }
 
 //==================================================================

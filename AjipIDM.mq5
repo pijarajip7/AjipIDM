@@ -3,10 +3,12 @@
 //|  Inducement-centric SMC strategy for MT5.                        |
 //|  Simple structure (SL/SH) WITHOUT VH/VL.                         |
 //|  Entry decision = LTF idm taken + no body break → fade the sweep,|
-//|  gated by HTF equilibrium (discount/premium). Fixed lot, no      |
-//|  SL/TP at entry — one-time partial close at InpPartialClosePoints|
-//|  moves SL to breakeven on the rest, which then rides until daily |
-//|  target/max loss closes ALL positions.                           |
+//|  gated by HTF equilibrium (discount/premium). Fixed lot, no TP.  |
+//|  No SL at entry either, but an aggregate SL (RecalculateAggregateSL,|
+//|  AjipIDM_Entry.mqh) is applied every tick from the smallest of   |
+//|  batch/daily/final max loss. One-time partial close at           |
+//|  InpPartialClosePoints moves SL to breakeven on the rest, which  |
+//|  then rides until daily/final target/max loss closes ALL positions.|
 //|  Running-max swing detection from 50 candles init.               |
 //+------------------------------------------------------------------+
 #property copyright   "AjipSMC"
@@ -27,14 +29,16 @@ input bool             InpUseAggressiveEntry = true;    // Enter at idm level in
 input int              InpCandlesInit       = 50;       // Lookback candles for initial trend
 
 input group "Entry & Trade Sizing"
-input double InpFixedLot    = 0.02;   // Fixed lot size per entry (no SL/TP in this variant)
-input int    InpMinTpPoints = 1000;   // Min HTF reference distance in points (setup-quality filter, skip if below)
-input ulong  InpDeviation   = 10;     // Slippage (points)
-input long   InpMagicNumber = 99001;  // Magic number
+input double InpFixedLot     = 0.02;   // Fixed lot size per entry
+input double InpMaxTotalLots = 0.0;    // Max open volume (lots) PER DIRECTION — BUY and SELL capped independently, not combined (0=disabled)
+input int    InpMinTpPoints  = 1000;   // Min HTF reference distance in points (setup-quality filter, skip if below)
+input ulong  InpDeviation    = 10;     // Slippage (points)
+input long   InpMagicNumber  = 99001;  // Magic number
 
 input group "Risk Management — Final Target"
 input double InpFinalProfitTarget = 0.0;  // Overall (non-daily) profit target — once reached, close ALL positions and stop new trades PERMANENTLY (0=disabled)
-input double InpStartingBalance   = 0.0;  // Baseline InpFinalProfitTarget is measured from (0 = auto-capture current balance on first run, then persisted)
+input double InpFinalMaxLoss      = 0.0;  // Overall (non-daily) max loss — once reached, close ALL positions and stop new trades PERMANENTLY (0=disabled)
+input double InpStartingBalance   = 0.0;  // Baseline InpFinalProfitTarget/InpFinalMaxLoss is measured from (0 = auto-capture current balance on first run, then persisted)
 
 input group "Risk Management — Daily"
 input double InpDailyMaxProfit = 60.0;   // Daily target — close ALL positions + stop new trades for the REST OF THE DAY (0=disabled)
@@ -165,9 +169,18 @@ void OnTick()
    // for the rest of the day, session blocks until back in-session).
    CheckPartialClose();
    CheckFinalTargetCloseAll();
+   CheckFinalMaxLossCloseAll();
    CheckBatchCloseAll();
    CheckDailyCloseAll();
    CheckSessionCloseAll();
+
+   // Aggregate SL — redistributes the smallest configured risk budget
+   // (batch/daily/final max loss) across every position still without its
+   // own protective stop (i.e. not yet at breakeven from partial close).
+   // Run every tick, after the close-all checks above and after MFE/MAE, so
+   // it always reflects this tick's final position/PnL state. See
+   // AjipIDM_Entry.mqh for the full rationale.
+   RecalculateAggregateSL();
 
    // HTF context — always active, own new-bar gate, runs every tick since
    // HTF bars close less often than LTF bars (must not be gated behind the

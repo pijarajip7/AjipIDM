@@ -55,6 +55,138 @@ void AddEntry(ulong ticket, int dir)
   }
 
 //==================================================================
+// GET TRACKED OPEN VOLUME — sum of POSITION_VOLUME across tracked positions
+// matching dirFilter (1=BUY, -1=SELL). Partial closes already shrink this
+// naturally, since they reduce POSITION_VOLUME on the same ticket.
+//==================================================================
+double GetTrackedOpenVolume(int dirFilter)
+  {
+   double total = 0.0;
+   int    n     = ArraySize(g_entries);
+   for(int i = 0; i < n; i++)
+     {
+      if(g_entries[i].dir != dirFilter) continue;
+      if(!PositionSelectByTicket(g_entries[i].ticket)) continue;
+      total += PositionGetDouble(POSITION_VOLUME);
+     }
+   return(total);
+  }
+
+//==================================================================
+// MAX TOTAL LOTS REACHED — blocks a new InpFixedLot entry in direction `dir`
+// if it would push that DIRECTION's tracked open volume above
+// InpMaxTotalLots. Capped per-direction, independently — a full BUY side and
+// a full SELL side can coexist, each up to InpMaxTotalLots on its own.
+// Position COUNT is intentionally uncapped (this strategy can legitimately
+// stack same-direction positions across reversal cycles) — volume is what
+// determines actual $ exposure, so that's what gets capped.
+//==================================================================
+bool MaxTotalLotsReached(int dir)
+  {
+   if(InpMaxTotalLots <= 0.0) return(false);
+   return(GetTrackedOpenVolume(dir) + InpFixedLot > InpMaxTotalLots + 0.0000001);
+  }
+
+//==================================================================
+// APPLY AGGREGATE SL FOR DIRECTION — helper for RecalculateAggregateSL.
+// Sums volume of tracked, non-BE positions on ONE side (dir), then sizes a
+// uniform points-distance from each of their own entry prices so that if
+// every one of THEM gapped through its stop at once, their combined loss
+// equals `budget`. See RecalculateAggregateSL for why each direction gets
+// the FULL budget independently rather than splitting it.
+//==================================================================
+void ApplyAggregateSLForDirection(int dir, double budget, double valuePerPointPerLot)
+  {
+   int    n           = ArraySize(g_entries);
+   double totalVolume = 0.0;
+   for(int i = 0; i < n; i++)
+     {
+      if(g_entries[i].dir != dir) continue;
+      if(g_entries[i].partialClosed) continue;
+      if(!PositionSelectByTicket(g_entries[i].ticket)) continue;
+      totalVolume += PositionGetDouble(POSITION_VOLUME);
+     }
+   if(totalVolume <= 0.0) return;
+
+   double slPoints = budget / (totalVolume * valuePerPointPerLot);
+   if(slPoints <= 0.0) return;
+
+   for(int i = 0; i < n; i++)
+     {
+      if(g_entries[i].dir != dir) continue;
+      if(g_entries[i].partialClosed) continue;
+      if(!PositionSelectByTicket(g_entries[i].ticket)) continue;
+
+      double entryPrice = g_entries[i].entryPrice;
+      double newSl = (dir == 1)
+                     ? NormalizeDouble(entryPrice - slPoints * g_point, g_digits)
+                     : NormalizeDouble(entryPrice + slPoints * g_point, g_digits);
+
+      double curSl = PositionGetDouble(POSITION_SL);
+      if(MathAbs(curSl - newSl) < g_point * 0.5) continue; // already set
+
+      if(!trade.PositionModify(g_entries[i].ticket, newSl, PositionGetDouble(POSITION_TP)))
+        {
+         if(InpEnableLog) PrintFormat("AjipIDM: Aggregate SL modify FAILED. Ticket=%I64u target SL=%.5f retcode=%d (%s)",
+                     g_entries[i].ticket, newSl, trade.ResultRetcode(), trade.ResultRetcodeDescription());
+        }
+     }
+  }
+
+//==================================================================
+// RECALCULATE AGGREGATE SL — every tick (called from OnTick), distributes a
+// shared risk budget across every tracked position that doesn't already
+// have its own protective stop. Positions with partialClosed==true already
+// sit at breakeven (see CheckPartialClose) — that's always at least as safe
+// as any budget-derived SL, so they're left alone.
+//
+// Budget = the SMALLEST of InpBatchMaxLoss/InpDailyMaxLoss/InpFinalMaxLoss
+// that's actually enabled (>0). Picking the smallest means the aggregate SL
+// never sits looser than whichever circuit breaker is tightest.
+//
+// Calculated SEPARATELY per direction (BUY pool and SELL pool each get the
+// FULL budget, not half each) — deliberately NOT netted together. A single
+// price move can only hurt one side at a time: if price drops, only the BUY
+// pool is at risk (SELL is floating into profit, not loss) and vice versa.
+// Since the two sides' worst cases are mutually exclusive events, giving
+// each side the full budget independently is the correct sizing for "worst
+// loss from one directional move" — pooling both sides together (as an
+// earlier version of this did) would double-count the hedge and make stops
+// needlessly tight whenever BUY and SELL are open at the same time.
+//
+// This does NOT bound total loss across a whipsaw (SELL stopped out on an
+// up-move, then a new BUY later stopped out on a down-move) — that's a
+// sequential, not simultaneous, scenario, and stays covered by the netted,
+// direction-agnostic CheckBatchCloseAll/CheckDailyCloseAll/
+// CheckFinalMaxLossCloseAll (which run BEFORE this every tick — see OnTick).
+//
+// Note: `budget` itself is a static config comparison (min of the three
+// input amounts), not netted against PnL already realized today/this batch
+// — same caveat as before, and same reason those three checks remain the
+// authoritative circuit breakers. This is a broker-side safety net for when
+// they can't react in time (disconnect, gap, slippage on the close-all
+// itself), not a replacement for them.
+//==================================================================
+void RecalculateAggregateSL()
+  {
+   double budget = -1.0;
+   if(InpBatchMaxLoss > 0.0) budget = InpBatchMaxLoss;
+   if(InpDailyMaxLoss > 0.0) budget = (budget < 0.0) ? InpDailyMaxLoss : MathMin(budget, InpDailyMaxLoss);
+   if(InpFinalMaxLoss > 0.0) budget = (budget < 0.0) ? InpFinalMaxLoss : MathMin(budget, InpFinalMaxLoss);
+   if(budget <= 0.0) return; // nothing configured — no budget to distribute, no SL applied
+
+   double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+   double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   if(tickValue <= 0.0 || tickSize <= 0.0) return;
+
+   double valuePerPointPerLot = (tickValue / tickSize) * g_point;
+   if(valuePerPointPerLot <= 0.0) return;
+
+   ApplyAggregateSLForDirection(1,  budget, valuePerPointPerLot);  // BUY pool
+   ApplyAggregateSLForDirection(-1, budget, valuePerPointPerLot);  // SELL pool
+  }
+
+//==================================================================
 // UPDATE MFE/MAE — track best/worst floating P/L ($) for every tracked
 // open position. Called every tick (not gated by new-bar) so intra-bar
 // excursions are captured, not just closed-bar extremes.
@@ -363,7 +495,9 @@ void CheckAggressiveZoneEntry()
    if(!touchBuy && !touchSell) return;
 
    if(FinalTargetReached()) return;
+   if(FinalMaxLossReached()) return;
    if(DailyLimitReached()) return;
+   if(MaxTotalLotsReached(touchBuy ? 1 : -1)) return;
    if(BatchCooldownActive()) return;
    if(!InSession()) return;
    if(InNewsBlackout()) return;
@@ -475,9 +609,19 @@ void CheckIdmZoneEntry(MqlRates &bar)
       if(InpEnableLog) PrintFormat("AjipIDM: %s skip — final profit target reached.", entryBuy ? "BUY" : "SELL");
       return;
      }
+   if(FinalMaxLossReached())
+     {
+      if(InpEnableLog) PrintFormat("AjipIDM: %s skip — final max loss reached.", entryBuy ? "BUY" : "SELL");
+      return;
+     }
    if(DailyLimitReached())
      {
       if(InpEnableLog) PrintFormat("AjipIDM: %s skip — daily limit reached.", entryBuy ? "BUY" : "SELL");
+      return;
+     }
+   if(MaxTotalLotsReached(entryBuy ? 1 : -1))
+     {
+      if(InpEnableLog) PrintFormat("AjipIDM: %s skip — max total lots reached.", entryBuy ? "BUY" : "SELL");
       return;
      }
    if(BatchCooldownActive())
