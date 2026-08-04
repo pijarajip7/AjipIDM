@@ -117,6 +117,88 @@ double GetMonthPnL()
   }
 
 //==================================================================
+// CAPTURE STARTING BALANCE — resolves g_startingBalance once, called from
+// OnInit. No-op if InpFinalProfitTarget is disabled — nothing needs a
+// baseline then. If InpStartingBalance is set, use it directly (fixed,
+// e.g. the account's actual challenge starting balance). Otherwise
+// auto-capture from the current balance THE FIRST TIME THIS EVER RUNS for
+// this login+magic+symbol, and persist it via GlobalVariable — a later
+// EA/terminal restart must re-read the SAME baseline, not re-capture
+// (re-capturing would silently erase already-realized profit from the
+// target calculation, since balance already includes it by then).
+// GlobalVariables are per-TERMINAL, not per-account — in a multi-account
+// rotation setup (orchestrator/) the same terminal logs into different
+// accounts over time, so the name includes login (same reasoning as
+// WriteBatchCsv's filename).
+//==================================================================
+void CaptureStartingBalance()
+  {
+   if(InpFinalProfitTarget <= 0.0) return;
+
+   if(InpStartingBalance > 0.0)
+     {
+      g_startingBalance = InpStartingBalance;
+      if(InpEnableLog) PrintFormat("AjipIDM: Final target baseline = %.2f (manual, InpStartingBalance).", g_startingBalance);
+      return;
+     }
+
+   string gvName = "AjipIDM_StartBal_" + _Symbol + "_" + IntegerToString(InpMagicNumber)
+                  + "_" + IntegerToString((int)AccountInfoInteger(ACCOUNT_LOGIN));
+   bool wasPersisted = GlobalVariableCheck(gvName);
+
+   if(wasPersisted)
+      g_startingBalance = GlobalVariableGet(gvName);
+   else
+     {
+      g_startingBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+      GlobalVariableSet(gvName, g_startingBalance);
+     }
+
+   if(InpEnableLog) PrintFormat("AjipIDM: Final target baseline = %.2f (auto, %s).",
+               g_startingBalance, wasPersisted ? "loaded from previous run" : "captured now");
+  }
+
+//==================================================================
+// FINAL TARGET REACHED — overall (non-daily) profit vs InpFinalProfitTarget,
+// measured from g_startingBalance. Unlike DailyLimitReached, there is no
+// reset: once balance-since-baseline (+ any floating) clears the target, it
+// naturally STAYS cleared — no new entries means no further floating PnL
+// to pull it back down, so this keeps returning true forever without
+// needing a separate persisted "hit" flag.
+//==================================================================
+bool FinalTargetReached()
+  {
+   if(InpFinalProfitTarget <= 0.0) return(false);
+   double total = (AccountInfoDouble(ACCOUNT_BALANCE) - g_startingBalance) + GetFloatingPnL();
+   return(total >= InpFinalProfitTarget);
+  }
+
+//==================================================================
+// CHECK FINAL TARGET CLOSE ALL — closes everything once FinalTargetReached().
+// Does NOT call WriteHandoffSignal: that signal means "done for TODAY,
+// resume tomorrow" (orchestrator/orchestrator.py clears maxed_today on
+// each date rollover) — wrong semantics for a target that should stay hit
+// permanently. A final-target account is meant to stop trading for good,
+// not resume the next day; wiring it into the rotation handoff is a
+// separate decision, not implied by "add a final profit target". Called
+// every tick, same cadence as CheckDailyCloseAll/CheckBatchCloseAll.
+//==================================================================
+void CheckFinalTargetCloseAll()
+  {
+   if(!FinalTargetReached()) return;
+
+   static datetime lastLog = 0;
+   datetime today = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
+   if(lastLog != today)
+     {
+      if(InpEnableLog) PrintFormat("AjipIDM: FINAL TARGET reached (balance=%.2f, baseline=%.2f, target=%.2f) — closing all positions, stopping permanently.",
+                  AccountInfoDouble(ACCOUNT_BALANCE), g_startingBalance, InpFinalProfitTarget);
+      lastLog = today;
+     }
+   CloseAllAndFlushBatch("FINAL_TARGET");
+  }
+
+//==================================================================
 // DAILY LIMIT REACHED — check if daily max profit or max loss hit
 // Returns true if no new trades should be opened today.
 //==================================================================
@@ -153,6 +235,32 @@ bool DailyLimitReached()
      }
 
    return(false);
+  }
+
+//==================================================================
+// BATCH COOLDOWN ACTIVE — true while still inside InpBatchCooldownMinutes
+// of the last batch going flat (g_lastBatchEndTime, stamped by
+// FlushBatchIfDone). Unlike DailyLimitReached, this is purely a timer, not
+// a PnL check — it exists to space out consecutive batches (e.g. avoid
+// re-entering right into the same choppy conditions that just closed the
+// previous one), regardless of whether that batch won or lost.
+//==================================================================
+bool BatchCooldownActive()
+  {
+   if(InpBatchCooldownMinutes <= 0) return(false);
+   if(g_lastBatchEndTime <= 0) return(false); // no batch has finished yet this run
+
+   datetime cooldownEnd = g_lastBatchEndTime + InpBatchCooldownMinutes * 60;
+   if(TimeCurrent() >= cooldownEnd) return(false);
+
+   static datetime lastLog = 0;
+   if(InpEnableLog && lastLog != g_lastBatchEndTime)
+     {
+      PrintFormat("AjipIDM: Batch cooldown active — next entry allowed at %s.",
+                  TimeToString(cooldownEnd, TIME_DATE | TIME_MINUTES));
+      lastLog = g_lastBatchEndTime;
+     }
+   return(true);
   }
 
 //==================================================================
@@ -462,7 +570,10 @@ void FlushBatchIfDone(const string reason)
       return; // one or more stragglers still open — don't flush yet
 
    if(g_batchCount > 0)
+     {
       WriteBatchCsv(reason);
+      g_lastBatchEndTime = TimeCurrent(); // starts the InpBatchCooldownMinutes clock (BatchCooldownActive)
+     }
    ResetBatchAccumulator();
   }
 

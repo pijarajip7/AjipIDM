@@ -20,36 +20,60 @@
 //==================================================================
 // INPUTS
 //==================================================================
-input ENUM_TIMEFRAMES InpTimeframe   = PERIOD_M1;  // Working timeframe
-input double          InpFixedLot    = 0.02;         // Fixed lot size per entry (no SL/TP in this variant)
-input int             InpMinTpPoints = 1000;           // Min HTF reference distance in points (setup-quality filter, skip if below)
-input double          InpDailyMaxProfit = 40.0;      // Daily target — close ALL positions + stop new trades for the REST OF THE DAY (0=disabled)
-input double          InpDailyMaxLoss   = 300.0;      // Daily max loss — close ALL positions + stop new trades for the REST OF THE DAY (0=disabled)
-input double          InpBatchMaxProfit = 20.0;          // Batch target — close current batch only, new entries still allowed right after (0=disabled)
-input double          InpBatchMaxLoss   = 0.0;          // Batch max loss — close current batch only, new entries still allowed right after (0=disabled)
-input string          InpSessionStart = "02:00";        // Session start (server time HH:MM) — entries only inside session; start==end disables filter
-input string          InpSessionEnd   = "20:00";        // Session end (server time HH:MM) — outside session: no new entries; if PnL > 0, close ALL positions
-input bool             InpNewsFilterEnabled = false;              // Block new entries around high-impact calendar news for this symbol's currencies
+input group "Strategy / Structure"
+input ENUM_TIMEFRAMES InpTimeframe       = PERIOD_M1;   // Working timeframe
+input ENUM_TIMEFRAMES InpHtfTimeframe    = PERIOD_M15;  // Higher timeframe — drives equilibrium filter for every entry
+input bool             InpUseAggressiveEntry = true;    // Enter at idm level intrabar (before bar close); reverses structure early
+input int              InpCandlesInit       = 50;       // Lookback candles for initial trend
+
+input group "Entry & Trade Sizing"
+input double InpFixedLot    = 0.02;   // Fixed lot size per entry (no SL/TP in this variant)
+input int    InpMinTpPoints = 1000;   // Min HTF reference distance in points (setup-quality filter, skip if below)
+input ulong  InpDeviation   = 10;     // Slippage (points)
+input long   InpMagicNumber = 99001;  // Magic number
+
+input group "Risk Management — Final Target"
+input double InpFinalProfitTarget = 0.0;  // Overall (non-daily) profit target — once reached, close ALL positions and stop new trades PERMANENTLY (0=disabled)
+input double InpStartingBalance   = 0.0;  // Baseline InpFinalProfitTarget is measured from (0 = auto-capture current balance on first run, then persisted)
+
+input group "Risk Management — Daily"
+input double InpDailyMaxProfit = 60.0;   // Daily target — close ALL positions + stop new trades for the REST OF THE DAY (0=disabled)
+input double InpDailyMaxLoss   = 280.0;  // Daily max loss — close ALL positions + stop new trades for the REST OF THE DAY (0=disabled)
+
+input group "Risk Management — Batch"
+input double InpBatchMaxProfit       = 20.0;  // Batch target — close current batch only, new entries still allowed right after (0=disabled)
+input double InpBatchMaxLoss         = 0.0;   // Batch max loss — close current batch only, new entries still allowed right after (0=disabled)
+input int    InpBatchCooldownMinutes = 11;     // Minutes to wait after a batch goes flat before a new one can start (0=disabled, next entry allowed immediately)
+
+input group "Partial Close"
+input int    InpPartialClosePoints  = 500;   // Points profit to trigger one-time partial close (0=disabled)
+input double InpPartialClosePercent = 50.0;  // % of position volume to close at partial-close threshold
+
+input group "Session Filter"
+input string InpSessionStart = "02:00";  // Session start (server time HH:MM) — entries only inside session; start==end disables filter
+input string InpSessionEnd   = "20:00";  // Session end (server time HH:MM) — outside session: no new entries; if PnL > 0, close ALL positions
+
+input group "News Filter"
+input bool                           InpNewsFilterEnabled = true;                   // Block new entries around high-impact calendar news for this symbol's currencies
 input ENUM_CALENDAR_EVENT_IMPORTANCE InpNewsMinImportance = CALENDAR_IMPORTANCE_HIGH; // Minimum event importance to block on
-input int              InpNewsMinutesBefore = 30;                 // Minutes before a matching event to start blocking new entries
-input int              InpNewsMinutesAfter  = 30;                 // Minutes after a matching event to keep blocking new entries
-input int             InpPartialClosePoints  = 500; // Points profit to trigger one-time partial close (0=disabled)
-input double          InpPartialClosePercent = 50.0; // % of position volume to close at partial-close threshold
-input ENUM_TIMEFRAMES  InpHtfTimeframe = PERIOD_M15;  // Higher timeframe — drives equilibrium filter for every entry
-input bool             InpUseAggressiveEntry = true; // Enter at idm level intrabar (before bar close); reverses structure early
-input int             InpCandlesInit = 50;          // Lookback candles for initial trend
-input ulong           InpDeviation   = 10;          // Slippage (points)
-input long            InpMagicNumber = 99001;       // Magic number
-input bool            InpDrawLines   = true;        // Draw structure lines on chart
-input int             InpMaxLines    = 500;         // Max trendline objects (cleanup)
-input bool             InpShowPanel   = true;             // Show info panel (trend + P/L)
-input ENUM_BASE_CORNER InpPanelCorner = CORNER_LEFT_UPPER; // Panel corner
-input int              InpPanelX      = 20;               // Panel X offset (px)
-input int              InpPanelY      = 50;               // Panel Y offset (px)
-input bool             InpEnableLog   = true;              // Print diagnostic/debug messages to the Experts log
-input bool             InpHandoffEnabled = false;                    // Write a handoff signal file when daily target/max-loss is hit (for an external multi-account rotation orchestrator)
-input string           InpHandoffFile    = "AjipIDM_Handoff.csv";    // Filename written to the terminal's shared Common\Files folder (FILE_COMMON)
-input string           InpHeartbeatFile  = "AjipIDM_Heartbeat.csv";  // "I'm alive on THIS account" file, written every ~30s while InpHandoffEnabled — lets the orchestrator detect an account with no EA attached
+input int                            InpNewsMinutesBefore = 30;                      // Minutes before a matching event to start blocking new entries
+input int                            InpNewsMinutesAfter  = 30;                      // Minutes after a matching event to keep blocking new entries
+
+input group "Chart Display"
+input bool             InpDrawLines   = true;                // Draw structure lines on chart
+input int              InpMaxLines    = 500;                 // Max trendline objects (cleanup)
+input bool             InpShowPanel   = true;                // Show info panel (trend + P/L)
+input ENUM_BASE_CORNER InpPanelCorner = CORNER_LEFT_UPPER;    // Panel corner
+input int              InpPanelX      = 20;                  // Panel X offset (px)
+input int              InpPanelY      = 50;                  // Panel Y offset (px)
+
+input group "Diagnostics"
+input bool InpEnableLog = true;  // Print diagnostic/debug messages to the Experts log
+
+input group "Multi-Account Orchestrator"
+input bool   InpHandoffEnabled = false;                   // Write a handoff signal file when daily target/max-loss is hit (for an external multi-account rotation orchestrator)
+input string InpHandoffFile    = "AjipIDM_Handoff.csv";   // Filename written to the terminal's shared Common\Files folder (FILE_COMMON)
+input string InpHeartbeatFile  = "AjipIDM_Heartbeat.csv"; // "I'm alive on THIS account" file, written every ~30s while InpHandoffEnabled — lets the orchestrator detect an account with no EA attached
 
 //--- AjipIDM module includes (order matters: globals first, then deps) ---
 #include "AjipIDM_Globals.mqh"
@@ -92,6 +116,8 @@ int OnInit()
    g_sessionEndMin        = endMin;
    g_sessionFilterEnabled = sessionParsedOk && (startMin != endMin);
 
+   CaptureStartingBalance(); // baseline for InpFinalProfitTarget — no-op if disabled
+
    // Build initial structure from lookback candles
    if(!InitStructure())
      {
@@ -131,12 +157,14 @@ void OnTick()
    // excursions are captured, not just the closed-bar extreme.
    UpdateMfeMae();
 
-   // Per-position one-time partial close + portfolio-level batch/daily/
-   // session close-all — all react to floating P/L, so all run every tick,
-   // not gated by new-bar. Batch runs first (most granular, doesn't block
-   // entries); daily/session run after (broader, daily blocks entries for
-   // the rest of the day, session blocks until back in-session).
+   // Per-position one-time partial close + portfolio-level final/batch/
+   // daily/session close-all — all react to floating P/L, so all run every
+   // tick, not gated by new-bar. Final target first (most significant —
+   // permanent, not just for today); batch next (most granular, doesn't
+   // block entries); daily/session after (broader, daily blocks entries
+   // for the rest of the day, session blocks until back in-session).
    CheckPartialClose();
+   CheckFinalTargetCloseAll();
    CheckBatchCloseAll();
    CheckDailyCloseAll();
    CheckSessionCloseAll();

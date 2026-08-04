@@ -362,7 +362,9 @@ void CheckAggressiveZoneEntry()
    bool touchSell = (g_trend == TREND_DOWN && bid >= g_idmZonePrice);
    if(!touchBuy && !touchSell) return;
 
+   if(FinalTargetReached()) return;
    if(DailyLimitReached()) return;
+   if(BatchCooldownActive()) return;
    if(!InSession()) return;
    if(InNewsBlackout()) return;
 
@@ -468,9 +470,19 @@ void CheckIdmZoneEntry(MqlRates &bar)
 
    if(!doEntry) return;
 
+   if(FinalTargetReached())
+     {
+      if(InpEnableLog) PrintFormat("AjipIDM: %s skip — final profit target reached.", entryBuy ? "BUY" : "SELL");
+      return;
+     }
    if(DailyLimitReached())
      {
       if(InpEnableLog) PrintFormat("AjipIDM: %s skip — daily limit reached.", entryBuy ? "BUY" : "SELL");
+      return;
+     }
+   if(BatchCooldownActive())
+     {
+      if(InpEnableLog) PrintFormat("AjipIDM: %s skip — batch cooldown active.", entryBuy ? "BUY" : "SELL");
       return;
      }
    if(!InSession())

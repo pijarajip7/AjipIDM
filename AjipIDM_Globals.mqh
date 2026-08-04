@@ -136,6 +136,13 @@ double         g_batchRealizedPnl    = 0.0;
 double         g_batchMfeSum         = 0.0;
 double         g_batchMaeSum         = 0.0;
 
+// Set the moment a batch actually flushes (FlushBatchIfDone, AjipIDM_Trade.mqh
+// — only when g_batchCount > 0, i.e. a real batch just went flat), gates
+// BatchCooldownActive() against InpBatchCooldownMinutes. Stays 0 until the
+// first batch of the run finishes, so cooldown never blocks the very first
+// entry.
+datetime       g_lastBatchEndTime = 0;
+
 // Bar tracking
 datetime       g_lastBarTime = 0;  // for new-bar detection within OnTick
 
@@ -143,6 +150,14 @@ datetime       g_lastBarTime = 0;  // for new-bar detection within OnTick
 // tick but only actually writes once per HEARTBEAT_INTERVAL_SECONDS.
 const int      HEARTBEAT_INTERVAL_SECONDS = 30;
 datetime       g_lastHeartbeatTime = 0;
+
+// Baseline InpFinalProfitTarget is measured from — resolved once in OnInit
+// by CaptureStartingBalance (AjipIDM_Trade.mqh). Either InpStartingBalance
+// directly, or auto-captured from the current balance and persisted via
+// GlobalVariable so a later EA/terminal restart re-reads the SAME baseline
+// instead of re-capturing (which would silently erase already-realized
+// profit from the target calculation).
+double         g_startingBalance = 0.0;
 
 // HTF context — structure/idm engine, always active (drives the equilibrium
 // filter for every entry; see AjipIDM_HtfContext.mqh).

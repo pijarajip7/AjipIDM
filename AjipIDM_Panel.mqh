@@ -2,10 +2,15 @@
 #define AJIPIDM_PANEL_MQH
 
 // INFO PANEL — on-chart dashboard: current trend, HTF trend,
-// today/this-week/this-month realized P/L, daily target/max-loss status AND
-// batch target/max-loss status (both via ClassifyLimitStatus — daily blocks
-// new entries when hit, batch doesn't, see AjipIDM_Trade.mqh/
-// AjipIDM_Entry.mqh), session status (InSession(), same gate used for new
+// today/this-week/this-month realized P/L, final (overall, non-daily)
+// profit target status, daily target/max-loss status AND batch
+// target/max-loss status (all three via ClassifyLimitStatus — final and
+// daily block new entries when hit, batch doesn't; final has no reset,
+// daily resets every day, see AjipIDM_Trade.mqh/AjipIDM_Entry.mqh), batch
+// cooldown status (BatchCooldownActive(), same
+// gate used for new entries — separate from the batch target/max-loss
+// status above: this is a pure timer after any batch goes flat, win or
+// lose), session status (InSession(), same gate used for new
 // entries and CheckSessionCloseAll), news blackout status (InNewsBlackout(),
 // AjipIDM_News.mqh — same gate used for new entries), and live open MFE/MAE (summed across
 // tracked open positions — updated every tick via UpdateMfeMae() in
@@ -60,6 +65,20 @@ color SessionStatusColor()
    return(InSession() ? clrLimeGreen : clrTomato);
   }
 
+string CooldownStatusText()
+  {
+   if(InpBatchCooldownMinutes <= 0) return("disabled");
+   if(!BatchCooldownActive()) return("clear");
+   int remainingSec = (int)(g_lastBatchEndTime + InpBatchCooldownMinutes * 60 - TimeCurrent());
+   return(StringFormat("%dm left", (remainingSec + 59) / 60)); // round up to whole minutes
+  }
+
+color CooldownStatusColor()
+  {
+   if(InpBatchCooldownMinutes <= 0) return(clrSilver);
+   return(BatchCooldownActive() ? clrTomato : clrLimeGreen);
+  }
+
 string NewsStatusText()
   {
    if(!InpNewsFilterEnabled) return("disabled");
@@ -95,7 +114,7 @@ void UpdatePanel()
    if(!InpShowPanel) return;
 
    const int lineH = 16;
-   const int lines = 12;
+   const int lines = 14;
    int y = 0;
 
    // Background box sized to fit the content
@@ -137,6 +156,15 @@ void UpdatePanel()
 
    double floatingPnl = GetFloatingPnL();
 
+   // Final (overall, non-daily) profit target status — balance-since-
+   // g_startingBalance + floating, same total FinalTargetReached() acts on.
+   // Hitting this closes everything and blocks new entries PERMANENTLY
+   // (no daily reset, unlike the status below).
+   ENUM_LIMIT_STATUS finalStatus = ClassifyLimitStatus(
+      (AccountInfoDouble(ACCOUNT_BALANCE) - g_startingBalance) + floatingPnl, InpFinalProfitTarget, 0.0);
+   PanelLabel(g_panelPrefix + "FinalStatus", y, "Final:     " + LimitStatusText(finalStatus), LimitStatusColor(finalStatus));
+   y += lineH;
+
    // Daily target/max-loss status — realized (todayPnl, already computed
    // above) + floating, same total CheckDailyCloseAll acts on. Hitting this
    // blocks new entries for the rest of the day.
@@ -149,6 +177,9 @@ void UpdatePanel()
    // closes only the current batch — new entries are still allowed right after.
    ENUM_LIMIT_STATUS batchStatus = ClassifyLimitStatus(g_batchRealizedPnl + floatingPnl, InpBatchMaxProfit, InpBatchMaxLoss);
    PanelLabel(g_panelPrefix + "BatchStatus", y, "Batch:     " + LimitStatusText(batchStatus), LimitStatusColor(batchStatus));
+   y += lineH;
+
+   PanelLabel(g_panelPrefix + "Cooldown", y, "Cooldown:  " + CooldownStatusText(), CooldownStatusColor());
    y += lineH;
 
    PanelLabel(g_panelPrefix + "Session", y, "Session:   " + SessionStatusText(), SessionStatusColor());
