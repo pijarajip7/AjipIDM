@@ -1,3 +1,3 @@
 MetaTrader5
-streamlit>=1.37
+streamlit>=1.50  # width="stretch" (dataframe) needs this; older versions only take an int pixel width there
 pandas

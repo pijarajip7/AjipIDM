@@ -163,7 +163,7 @@ def render_live_panel(poll_interval_seconds):
     cols[4].metric("Open positions", len(live["positions"]))
 
     if live["positions"]:
-        st.dataframe(pd.DataFrame(live["positions"]), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(live["positions"]), width="stretch", hide_index=True)
 
 
 # ------------------------------------------------------------------
@@ -224,7 +224,7 @@ for a in accounts:
         "Last activity": df["CloseTime"].max() if not df.empty else None,
     })
 
-st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 st.subheader("Cumulative realized PnL by account")
 chart_frames = []
@@ -248,4 +248,4 @@ history = load_handoff_history()
 if history.empty:
     st.info("No handoffs recorded yet.")
 else:
-    st.dataframe(history, use_container_width=True, hide_index=True)
+    st.dataframe(history, width="stretch", hide_index=True)
