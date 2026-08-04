@@ -102,10 +102,29 @@ def parse_kv_file(path):
 
 
 def common_files_dir():
+    # FILE_COMMON scope — where the EA writes the handoff signal
+    # (WriteHandoffSignal) and heartbeat (WriteHeartbeat), AjipIDM_Trade.mqh.
+    # Shared across every MT5 terminal for this Windows user, which is
+    # exactly why those two use it: the orchestrator needs to find them at a
+    # FIXED path regardless of which account is currently logged in.
     info = mt5.terminal_info()
     if info is None:
         raise RuntimeError(f"terminal_info() failed: {mt5.last_error()}")
     return os.path.join(info.commondata_path, "Files")
+
+
+def terminal_files_dir():
+    # Default (non-FILE_COMMON) scope — where the EA writes the per-account
+    # batch CSVs (WriteBatchCsv, AjipIDM_Trade.mqh) — deliberately NOT
+    # common, per that function's own comment, since login is already
+    # encoded in the filename. This is the terminal's OWN data folder, a
+    # different path from common_files_dir() above — mixing the two up
+    # means find_batch_csv() looks in the wrong directory and silently finds
+    # nothing (dashboard shows all-zero stats with no error).
+    info = mt5.terminal_info()
+    if info is None:
+        raise RuntimeError(f"terminal_info() failed: {mt5.last_error()}")
+    return os.path.join(info.data_path, "MQL5", "Files")
 
 
 def mt5_login(account, terminal_path):
@@ -155,7 +174,7 @@ def write_live_status(accounts, state, ea_status):
 
         payload = {
             "updated_at": datetime.datetime.now().isoformat(),
-            "files_dir": common_files_dir(),
+            "files_dir": terminal_files_dir(),  # for dashboard.py's find_batch_csv — see terminal_files_dir() docstring
             "current_login": info.login,
             "current_server": info.server,
             "balance": info.balance,
