@@ -1,32 +1,86 @@
 # AjipIDM — EA Architecture
 
-Files: `AjipIDM.mq5` (main) + 9 `.mqh` includes (see Files table in [README.md](../README.md)).
+Files: `AjipIDM.mq5` (main) + 10 `.mqh` includes (see Files table in [README.md](../README.md)).
 
 ## Input Parameters
 
+Dikelompokkan dengan `input group` — urutan di bawah sama dengan urutan di dialog EA. Nilai yang ditulis adalah default di source, bukan rekomendasi.
+
+**Strategy / Structure**
 ```
-InpTimeframe    = PERIOD_M15     — Working timeframe
-InpFixedLot     = 0.10           — Fixed lot size per entry (tidak ada SL/TP di varian ini)
-InpCandlesInit  = 50             — Lookback candles untuk initial trend
-InpDeviation    = 10             — Slippage (points)
-InpMagicNumber  = 99001          — Magic number
-InpDrawLines    = true           — Draw structure lines on chart
-InpMaxLines     = 500            — Max trendline objects
-InpMinTpPoints  = 0              — Min HTF reference distance in points (setup-quality filter, 0=no filter)
-InpDailyMaxProfit = 0.0          — Daily target — close ALL positions + stop entry baru SISA HARI ITU (0=disabled)
-InpDailyMaxLoss   = 0.0          — Daily max loss — close ALL positions + stop entry baru SISA HARI ITU (0=disabled)
-InpBatchMaxProfit = 0.0          — Batch target — close batch SAAT INI saja, entry baru tetap boleh langsung setelahnya (0=disabled)
-InpBatchMaxLoss   = 0.0          — Batch max loss — close batch SAAT INI saja, entry baru tetap boleh langsung setelahnya (0=disabled)
-InpSessionStart = "00:00"        — Session start (server time HH:MM) — entry baru hanya di dalam sesi
-InpSessionEnd   = "00:00"        — Session end (server time HH:MM) — start==end = tidak ada restriction (default)
-InpPartialClosePoints  = 1000    — Points profit untuk trigger one-time partial close (0=disabled)
-InpPartialClosePercent = 50.0    — % volume posisi yang ditutup di threshold partial close
-InpHtfTimeframe = PERIOD_H1      — Higher timeframe — SELALU aktif, sumber equilibrium filter (lihat concept.md)
-InpUseAggressiveEntry = false    — Enter di idm level intrabar (sebelum bar close), reverse LTF lebih awal
-InpShowPanel    = true           — Show info panel (trend + P/L) on chart
-InpPanelCorner  = CORNER_LEFT_UPPER — Panel corner
-InpPanelX       = 10             — Panel X offset (px)
-InpPanelY       = 20             — Panel Y offset (px)
+InpTimeframe          = PERIOD_M1    — Working timeframe
+InpHtfTimeframe       = PERIOD_M15   — Higher timeframe — SELALU aktif, sumber equilibrium filter
+InpUseAggressiveEntry = true         — Aktifkan jalur per-tick (reversal + zone entry intrabar)
+InpCandlesInit        = 50           — Lookback candles untuk initial trend
+```
+
+**Entry & Trade Sizing**
+```
+InpFixedLot     = 0.02   — Fixed lot per entry (tidak ada SL/TP di entry)
+InpMaxTotalLots = 0.0    — Max open volume PER ARAH — BUY & SELL di-cap independen (0=disabled)
+InpAllowHedging = true   — Boleh BUY & SELL terbuka bersamaan. false = entry baru diblokir
+                           selama sisi lawan masih open (prop firm yang melarang hedging)
+InpMinTpPoints  = 1000   — Min jarak HTF reference (points) — setup-quality filter
+InpDeviation    = 10     — Slippage (points)
+InpMagicNumber  = 99001  — Magic number
+```
+
+**Risk Management — Final Target** (permanen, lintas hari)
+```
+InpFinalProfitTarget = 0.0  — Target profit keseluruhan → close ALL + stop entry PERMANEN (0=disabled)
+InpFinalMaxLoss      = 0.0  — Max loss keseluruhan → close ALL + stop entry PERMANEN (0=disabled)
+InpStartingBalance   = 0.0  — Baseline pengukuran keduanya (0 = auto-capture saat first run, lalu dipersist)
+```
+
+**Risk Management — Daily**
+```
+InpDailyMaxProfit = 60.0   — Daily target → close ALL + blokir entry SISA HARI (0=disabled)
+InpDailyMaxLoss   = 280.0  — Daily max loss → close ALL + blokir entry SISA HARI (0=disabled)
+```
+
+**Risk Management — Batch**
+```
+InpBatchMaxProfit       = 20.0  — Batch target → tutup batch INI saja, entry baru tetap boleh (0=disabled)
+InpBatchMaxLoss         = 0.0   — Batch max loss → tutup batch INI saja, entry baru tetap boleh (0=disabled)
+InpBatchCooldownMinutes = 11    — Jeda setelah batch flat sebelum batch baru boleh mulai (0=disabled)
+```
+
+**Partial Close**
+```
+InpPartialClosePoints  = 500   — Points profit untuk trigger one-time partial close (0=disabled)
+InpPartialClosePercent = 50.0  — % volume yang ditutup di threshold partial close
+```
+
+**Session Filter**
+```
+InpSessionStart = "02:00"  — Session start (server time HH:MM) — start==end = filter nonaktif
+InpSessionEnd   = "20:00"  — Session end — di luar sesi: no entry; kalau PnL > 0 → close ALL
+```
+
+**News Filter**
+```
+InpNewsFilterEnabled = true                       — Blokir entry di sekitar news high-impact
+InpNewsMinImportance = CALENDAR_IMPORTANCE_HIGH   — Importance minimum yang memblokir
+InpNewsMinutesBefore = 30                         — Menit sebelum event mulai memblokir
+InpNewsMinutesAfter  = 30                         — Menit sesudah event masih memblokir
+```
+
+**Chart Display**
+```
+InpDrawLines   = true / InpMaxLines = 500
+InpShowPanel   = true / InpPanelCorner = CORNER_LEFT_UPPER / InpPanelX = 20 / InpPanelY = 50
+```
+
+**Diagnostics**
+```
+InpEnableLog = true  — Toggle semua Print/PrintFormat diagnostik ke tab Experts
+```
+
+**Multi-Account Orchestrator**
+```
+InpHandoffEnabled = false                    — Tulis handoff signal saat daily target/max-loss kena
+InpHandoffFile    = "AjipIDM_Handoff.csv"    — Ditulis ke Common\Files (FILE_COMMON)
+InpHeartbeatFile  = "AjipIDM_Heartbeat.csv"  — "EA hidup di akun ini", ditulis ~30s sekali
 ```
 
 ## Info Panel (opsional)
@@ -131,40 +185,55 @@ Karena batch limit TIDAK ngeblok entry, dalam SATU hari kalender bisa ada LEBIH 
 
 ## OnTick
 
+**Reversal dan entry sudah DIPISAH.** `CheckIdmTaken`/`CheckAggressiveIdmTouch` sekarang murni mengurus struktur (reversal), sementara entry dijalankan `CheckIdmZoneEntry`/`CheckAggressiveZoneEntry` dari boundary yang lebih longgar (`g_idmZonePrice` = extreme berlawanan dari bar idm). Keduanya tidak saling menunggu — lihat [Entry Decoupling](concept.md#entry-decoupling-zone-entry) di concept.md.
+
 ```
-0. UpdateMfeMae (tiap tick) → CheckPartialClose (tiap tick, one-time per
-   posisi, + breakeven SL) → CheckBatchCloseAll (tiap tick, g_batchRealizedPnl
-   +floating vs InpBatchMaxProfit/Loss — flush batch INI saja, entry baru
-   tetap boleh) → CheckDailyCloseAll (tiap tick, GetDailyPnL+floating vs
-   InpDailyMaxProfit/Loss — flush + blokir entry sisa hari) →
-   CheckSessionCloseAll (tiap tick, di luar sesi + PnL > 0 → flush)
-0.5 HTF context (SELALU aktif, gate TERPISAH dari LTF via g_htfLastBarTime,
-   jalan tiap tick SEBELUM early-return LTF): detect new closed HTF bar →
-   UpdateHtfStructure → HtfCheckIdmTaken (idm taken? reverse structure HTF)
-0.7 (jika InpUseAggressiveEntry) CheckAggressiveIdmTouch — per-tick, sebelum
-   early-return LTF: idm LTF tersentuh intrabar → reverse LTF early (pakai
-   last closed bar sbg boundary) → HtfEntryAllowed → OpenTrade langsung
-1. Detect new closed LTF bar (via g_lastBarTime)
-2. UpdateStructure: pullback detection + simple structure build
-3. CheckEntryCleanup: untuk semua tracked entries — posisi yang BENAR-BENAR
-   closed di LUAR close-all (partial close tidak menghapus ticket; mis.
-   breakeven stop) → fold ke batch accumulator → remove dari tracking. Tidak
-   pernah nulis CSV sendiri — flush selalu lewat CloseAllAndFlushBatch (step 0).
-4. CheckIdmTaken: cek idm taken LTF pada closed bar (entry decision, tidak berubah)
-   - Kalau lolos (no body break) → daily limit → session filter (InSession) →
-     HtfEntryAllowed (prev-swing body-break filter + reference swing HTF +
-     equilibrium HTF + min points) → OpenTrade (fixed lot, tanpa SL/TP)
-5. If entry: place MT5 order, AddEntry to tracking
-6. Multi-position — tidak ada batasan jumlah posisi
+0. Tiap tick, TIDAK digate new-bar:
+   WriteHeartbeat (self-throttled ~30s, no-op kalau InpHandoffEnabled=false)
+   UpdateMfeMae
+   CheckPartialClose            (one-time per posisi + breakeven SL)
+   CheckFinalTargetCloseAll     (PERMANEN — paling signifikan, dicek duluan)
+   CheckFinalMaxLossCloseAll    (PERMANEN)
+   CheckBatchCloseAll           (batch INI saja, entry baru tetap boleh)
+   CheckDailyCloseAll           (flush + blokir entry sisa hari)
+   CheckSessionCloseAll         (di luar sesi + PnL > 0 → flush)
+   RecalculateAggregateSL       (setelah semua close-all + MFE/MAE di atas)
+0.5 HTF context (SELALU aktif, gate TERPISAH via g_htfLastBarTime, jalan tiap
+   tick SEBELUM early-return LTF): new closed HTF bar → UpdateHtfStructure →
+   HtfCheckIdmTaken
+0.7 Jalur per-tick (InpUseAggressiveEntry):
+   CheckAggressiveZoneEntry  ← ENTRY. Dicek DULUAN: g_idmZonePrice lebih dekat
+                               ke harga daripada sweep penuh g_idmPrice
+   CheckAggressiveIdmTouch   ← REVERSAL saja, tidak entry. Butuh g_idmConfirmed
+   Kalau g_trend berubah di sini → UpdatePanel (label trend jangan telat sebar)
+1. Detect new closed LTF bar (via g_lastBarTime) — di bawah ini per-bar
+2. UpdateStructure: pullback detection + simple structure build + UpdateIdm
+3. CheckEntryCleanup: posisi yang closed DI LUAR close-all (mis. breakeven
+   stop) → fold ke batch accumulator → remove dari tracking
+4. CheckIdmZoneEntry(bar)  ← ENTRY (bar-close), dicek duluan
+   CheckIdmTaken(bar)      ← REVERSAL saja
+5. UpdatePanel
 ```
+
+**Gate entry** (urutan sama di kedua jalur entry): `FinalTargetReached` → `FinalMaxLossReached` → `DailyLimitReached` → `MaxTotalLotsReached(dir)` → `HedgeBlocked(dir)` → `BatchCooldownActive` → `InSession` → `InNewsBlackout` → `HtfEntryAllowed`. Jalur per-tick sengaja tidak nge-log tiap gate (spam); jalur bar-close nge-log alasan skip-nya.
 
 ## Position Management
 
-- Tidak ada TP/SL di entry — order selalu dibuka dengan SL=0, TP=0. TP tetap 0
-  selamanya (tidak pernah ada TP order); SL bisa berubah setelah partial close
-  (lihat di bawah).
+- Tidak ada TP/SL di entry — order selalu dibuka dengan SL=0, TP=0 (log:
+  `SL=NONE, TP=NONE`). TP tetap 0 selamanya; SL bisa muncul belakangan dari DUA
+  sumber: breakeven setelah partial close, atau aggregate SL (lihat di bawah).
 - Lot size: fixed, `InpFixedLot` untuk setiap entry (tidak dihitung dari target profit).
-- Multi-position — tidak ada batasan jumlah posisi terbuka.
+- Multi-position — jumlah posisi TIDAK dibatasi. Yang dibatasi VOLUME, lewat
+  `InpMaxTotalLots`, dan itu **per arah, independen**: sisi BUY penuh dan sisi
+  SELL penuh boleh hidup bersamaan, masing-masing sampai cap-nya sendiri
+  (`MaxTotalLotsReached(dir)`).
+- Hedging (`InpAllowHedging`): default `true` = BUY dan SELL boleh terbuka
+  bersamaan. Set `false` → `HedgeBlocked(dir)` menolak entry baru selama masih
+  ada volume tracked di sisi lawan, jadi kedua arah tidak pernah bersamaan.
+  Ini **memblokir entry**, bukan menutup paksa sisi lawan — menutup paksa akan
+  merealisasikan kerugian yang tidak diminta strategi. Sisi lama tetap keluar
+  lewat jalur normalnya, arah baru menunggu. Diperlukan untuk prop firm yang
+  memasukkan hedging sebagai forbidden strategy.
 - Partial close + breakeven SL: one-time per posisi, tiap tick via
   `CheckPartialClose` — begitu floating profit posisi >= `InpPartialClosePoints`,
   tutup `InpPartialClosePercent` dari volumenya (`PositionClosePartial`), lalu
@@ -176,17 +245,27 @@ Karena batch limit TIDAK ngeblok entry, dalam SATU hari kalender bisa ada LEBIH 
   `GetFloatingPnL()` — begitu nyentuh target/loss, `CloseAllAndFlushBatch`
   menutup SEMUA posisi (symbol+magic ini) + flush batch. Setelah itu
   `DailyLimitReached()` (realized-only) otomatis skip entry baru untuk SISA
-  HARI itu — circuit breaker tertinggi.
+  HARI itu — circuit breaker harian (final target di bawah lebih tinggi lagi).
+- Final target/max loss: `InpFinalProfitTarget`/`InpFinalMaxLoss` (0=disabled) —
+  circuit breaker TERTINGGI, **permanen dan lintas hari**, bukan reset harian.
+  Diukur dari `InpStartingBalance` (0 = auto-capture balance saat first run,
+  lalu dipersist supaya tidak ikut bergeser tiap restart). Begitu kena,
+  `CloseAllAndFlushBatch` + entry baru berhenti SELAMANYA sampai input di-reset
+  manual. Dicek paling awal tiap tick, sebelum batch/daily.
 - Batch close-all: `InpBatchMaxProfit`/`InpBatchMaxLoss` (0=disabled), TERPISAH
   dari daily. Tiap tick, `CheckBatchCloseAll` jumlah `g_batchRealizedPnl`
   (realized batch INI SAJA, bukan seluruh hari) + `GetFloatingPnL()` — begitu
   nyentuh target/loss batch, `CloseAllAndFlushBatch` menutup+flush batch itu
   SAJA. TIDAK ngeblok entry baru — batch baru boleh langsung mulai lagi
   selama daily limit belum ikut kena. Lihat [Daily vs Batch Limit](architecture.md#daily-vs-batch-limit).
+- Batch cooldown: `InpBatchCooldownMinutes` (0=disabled) — setelah sebuah batch
+  benar-benar flat (`g_lastBatchEndTime`), entry baru ditahan selama N menit
+  (`BatchCooldownActive()`). Mencegah batch baru langsung nyambung ke batch yang
+  baru saja ditutup.
 - Trading session: `InpSessionStart`/`InpSessionEnd` (server time `HH:MM`,
   di-parse sekali di `OnInit` — start==end atau unparseable = filter
   nonaktif). `InSession()` dicek sebagai entry gate (sejajar
-  `DailyLimitReached()`) di `CheckIdmTaken`/`CheckAggressiveIdmTouch` — di
+  `DailyLimitReached()`) di `CheckIdmZoneEntry`/`CheckAggressiveZoneEntry` — di
   luar sesi, entry baru di-skip. `CheckSessionCloseAll` (tiap tick): di luar
   sesi DAN total (realized+floating) > 0 → `CloseAllAndFlushBatch`, walaupun
   belum nyentuh `InpDailyMaxProfit` — supaya profit tidak "dibalikin" di
@@ -195,3 +274,75 @@ Karena batch limit TIDAK ngeblok entry, dalam SATU hari kalender bisa ada LEBIH 
 - Tidak ada mekanisme invalidation per-struktur lagi (mekanisme HTF body-break
   invalidation versi TP/SL sebelumnya sudah dihapus di varian ini) — exit
   murni dari partial close + batch/daily/session close-all.
+
+## Aggregate SL
+
+`RecalculateAggregateSL()` (`AjipIDM_Entry.mqh`), tiap tick, SETELAH semua
+close-all dan MFE/MAE. Membagikan satu budget risiko ke setiap posisi tracked
+yang belum punya stop sendiri. Posisi dengan `partialClosed==true` sudah di
+breakeven → dilewati (breakeven selalu minimal seaman SL dari budget).
+
+```
+budget = MIN dari InpBatchMaxLoss / InpDailyMaxLoss / InpFinalMaxLoss
+         yang aktif (>0). Tidak ada yang aktif → tidak ada SL sama sekali.
+valuePerPointPerLot = (SYMBOL_TRADE_TICK_VALUE / SYMBOL_TRADE_TICK_SIZE) * point
+
+ApplyAggregateSLForDirection(+1, budget, ...)   ← pool BUY
+ApplyAggregateSLForDirection(-1, budget, ...)   ← pool SELL
+```
+
+**Tiap arah dapat budget PENUH, bukan setengah-setengah.** Ini disengaja: satu
+pergerakan harga hanya bisa melukai satu sisi pada satu waktu — kalau harga
+turun, hanya pool BUY yang rugi (SELL justru floating profit). Karena worst-case
+kedua sisi mutually exclusive, memberi masing-masing budget penuh adalah sizing
+yang benar untuk "kerugian terburuk dari satu pergerakan arah". Menggabungkan
+keduanya (versi lama) menghitung ganda posisi hedge dan membuat stop terlalu
+ketat setiap kali BUY dan SELL terbuka bersamaan.
+
+**Batasannya** — ini jaring pengaman broker-side, BUKAN pengganti circuit
+breaker. Tidak membatasi kerugian total lintas whipsaw (SELL kena stop saat naik,
+lalu BUY baru kena stop saat turun) karena itu skenario berurutan, bukan
+bersamaan; yang menangani itu tetap `CheckBatchCloseAll`/`CheckDailyCloseAll`/
+`CheckFinalMaxLossCloseAll` yang jalan LEBIH DULU tiap tick. `budget` juga
+perbandingan config statis, belum dinetokan terhadap PnL yang sudah realized.
+Gunanya: menutup celah saat ketiga check itu tidak sempat bereaksi — disconnect,
+gap, atau slippage pada close-all itu sendiri.
+
+## News Blackout
+
+`InNewsBlackout()` (`AjipIDM_News.mqh`) — gate entry, TIDAK menutup posisi yang
+sudah terbuka. Memakai Calendar API bawaan MT5, mencocokkan event dengan base +
+profit currency simbol (XAUUSD → cek XAU dan USD). Window: `now -
+InpNewsMinutesAfter` sampai `now + InpNewsMinutesBefore`.
+
+Hasilnya di-cache 15 detik supaya tidak dihitung ulang tiap tick — window
+blackout lebarnya menit, lag cache beberapa detik tidak material. Kalau kalender
+tidak tersedia (mis. Strategy Tester tanpa data ter-cache), query mengembalikan
+nol event dan filter ini **non-blocking** — fallback yang sama dengan session
+filter saat input tidak bisa di-parse.
+
+## Restart Recovery
+
+`RebuildTrackedPositions()` (`AjipIDM_Entry.mqh`), dipanggil di `OnInit`. Saat EA
+di-reattach/recompile/restart, `g_entries[]` kosong sementara posisi di broker
+masih ada. Tanpa ini, posisi lama jadi "yatim": tidak ikut MFE/MAE, tidak kena
+partial close, tidak dilindungi aggregate SL, dan tidak masuk batch report.
+
+Recovery memindai posisi terbuka dengan symbol+magic yang cocok, memasukkannya
+kembali ke tracking, lalu merekonstruksi `g_batchActive`/`g_batchFirstEntryTime`/
+`g_batchLastEntryTime` dari waktu buka posisi-posisi itu. MFE/MAE dimulai ulang
+dari nilai sekarang (excursion sebelum restart hilang — tidak terekam di mana
+pun).
+
+## Multi-Account Orchestrator (opsional)
+
+Aktif hanya kalau `InpHandoffEnabled=true`. EA menulis dua file ke folder
+**Common\Files** (`FILE_COMMON`, dipakai bersama semua terminal):
+
+- `InpHandoffFile` — ditulis saat daily target / daily max loss kena. Sinyal ke
+  orchestrator eksternal bahwa akun ini sudah selesai untuk hari itu.
+- `InpHeartbeatFile` — "EA hidup di akun ini", ditulis ~30 detik sekali
+  (`WriteHeartbeat`, self-throttled, aman dipanggil tiap tick). Dipakai
+  orchestrator untuk mendeteksi akun yang tidak ada EA-nya.
+
+Sisi Python-nya ada di `orchestrator/` — lihat [orchestrator/README.md](../orchestrator/README.md).

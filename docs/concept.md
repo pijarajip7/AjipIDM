@@ -47,31 +47,31 @@ idm TIDAK bergeser meski wick lebih dalam. Yang penting hanya close vs idm level
 Saat idm taken (candle low/high menembus idm level):
 1. Trend SELALU berubah — regardless of body break
 2. Build struktur baru dari titik ekstrem sebelumnya
-3. Cek close candle untuk entry decision
+3. **Tidak ada keputusan entry di sini.** Entry jalan terpisah — lihat [Entry Decoupling](#entry-decoupling-zone-entry).
 
 ## Entry Rules
 
-Keputusan ENTRY (kapan & arah) masih murni dari struktur LTF (`InpTimeframe`) — tidak berubah dari sebelumnya. Yang berubah: equilibrium (discount/premium) filter sekarang mengacu ke HTF (`InpHtfTimeframe`) — lihat [HTF-Referenced Equilibrium Gate](#htf-referenced-equilibrium-gate) di bawah. **Tidak ada TP/SL** — lot selalu fixed (`InpFixedLot`), exit murni lewat [Partial Close](#partial-close-one-time-per-posisi) dan [Daily Close-All](#daily-close-all-target--max-loss).
+Keputusan ENTRY (kapan & arah) murni dari struktur LTF (`InpTimeframe`), digate equilibrium HTF (`InpHtfTimeframe`) — lihat [HTF-Referenced Equilibrium Gate](#htf-referenced-equilibrium-gate). **Tidak ada TP/SL di entry** — lot selalu fixed (`InpFixedLot`); SL baru muncul belakangan dari breakeven partial-close atau aggregate SL.
 
-**BUY** (uptrend → idm taken dari bawah):
-```
-Condition: candle low < SLU_last (idm LTF) AND close > SLU_last
-→ No body break = sweep/fakeout
-→ Equilibrium HTF dicek via HtfEntryAllowed — kalau lolos semua filter,
-  BUY @ close price, lot = InpFixedLot, tanpa SL/TP
-```
+Pemicunya **`g_idmZonePrice`** (extreme berlawanan dari bar idm), bukan sweep penuh `g_idmPrice`. Filter "no body break" tetap ada, tapi diukur terhadap `g_idmPrice`:
 
-**SELL** (downtrend → idm taken dari atas):
+**BUY** (uptrend, harga retrace ke zone idm):
 ```
-Condition: candle high > SHD_last (idm LTF) AND close < SHD_last
-→ No body break = sweep/fakeout
-→ Equilibrium HTF dicek via HtfEntryAllowed — kalau lolos semua filter,
-  SELL @ close price, lot = InpFixedLot, tanpa SL/TP
+Condition: bar.low < g_idmZonePrice   ← zone tersentuh
+       AND bar.close > g_idmPrice     ← belum body break di bawah idm penuh
+→ BUY @ close price, lot = InpFixedLot, tanpa SL/TP
 ```
 
-**Body break = no entry:**
-- Uptrend idm: close < SLU_last → downtrend confirmed, lanjut track
-- Downtrend idm: close > SHD_last → uptrend confirmed, lanjut track
+**SELL** (downtrend, harga retrace ke zone idm):
+```
+Condition: bar.high > g_idmZonePrice
+       AND bar.close < g_idmPrice
+→ SELL @ close price, lot = InpFixedLot, tanpa SL/TP
+```
+
+**Body break = no entry:** close menembus `g_idmPrice` (uptrend: close < idm, downtrend: close > idm) → bukan sweep, tidak entry. Reversal strukturnya sendiri diurus jalur terpisah.
+
+Versi per-tick (`CheckAggressiveZoneEntry`) memakai boundary zone yang sama tapi dievaluasi dari Bid intrabar, tanpa syarat close — konsekuensi wajar karena bar belum selesai.
 
 ## HTF-Referenced Equilibrium Gate
 
@@ -144,9 +144,17 @@ Kalau `g_htfIdmPrice` belum siap (belum ke-init), entry di-skip.
 
 Varian ini tidak lagi menghitung lot dari target profit maupun SL dari RR:
 - `OpenTrade` selalu buka posisi dengan lot = `InpFixedLot`, SL=0, TP=0.
-- Exit datang dari dua mekanisme di bawah — tidak ada TP order sama sekali. SL
-  TETAP nol sampai partial close terjadi (lihat breakeven SL di bawah); tidak
-  ada SL awal di entry.
+- Tidak ada TP order sama sekali, selamanya.
+- SL nol **di entry**, tapi bisa muncul belakangan dari dua sumber: breakeven
+  setelah partial close, atau [Aggregate SL](architecture.md#aggregate-sl) yang
+  membagikan budget max-loss terkecil ke posisi yang belum punya stop.
+
+**Batas eksposur** (bukan exit, tapi pembatas pembukaan posisi baru):
+- `InpMaxTotalLots` — cap volume **per arah, independen**. Jumlah posisi tidak
+  dibatasi; yang dibatasi volume.
+- `InpAllowHedging=false` — BUY dan SELL tidak boleh terbuka bersamaan. Entry
+  baru diblokir selama sisi lawan masih ada (bukan menutup paksa sisi lawan).
+  Untuk prop firm yang melarang hedging.
 
 ## Partial Close (One-Time per Posisi) + Breakeven SL
 
@@ -165,6 +173,20 @@ Kalau profitPoints >= InpPartialClosePoints DAN belum pernah partial-close:
     BE SL juga cuma di-set sekali di titik ini, tidak di-trail lebih lanjut)
 ```
 Sisa volume (`remainder`) jalan terus dengan SL di breakeven (tanpa TP), menunggu stop-out di entry, batch/daily close-all, atau ditutup manual.
+
+## Final Close-All (Target / Max Loss) — Berhenti PERMANEN
+
+Lapisan risiko paling tinggi, **lintas hari** dan tidak reset tiap pagi. Dicek paling awal tiap tick, sebelum batch dan daily.
+
+```
+baseline = InpStartingBalance (0 = auto-capture balance saat first run, lalu dipersist)
+total    = (balance sekarang - baseline) + GetFloatingPnL()
+
+InpFinalProfitTarget > 0 DAN total >= InpFinalProfitTarget → CloseAllAndFlushBatch + STOP PERMANEN
+InpFinalMaxLoss      > 0 DAN total <= -InpFinalMaxLoss     → CloseAllAndFlushBatch + STOP PERMANEN
+```
+
+Bedanya dengan daily: daily membuka lagi keesokan harinya, final **tidak pernah** — entry baru berhenti sampai input di-reset manual. Baseline dipersist supaya tidak ikut bergeser tiap restart EA.
 
 ## Daily Close-All (Target / Max Loss) — Blokir Entry Sisa Hari
 
@@ -206,7 +228,7 @@ InSession() — tiap dipanggil, bandingkan TimeCurrent() (server time, SAMA
   start >  end : nowMin >= start OR  nowMin < end   (wrap tengah malam, mis. 22:00-06:00)
 ```
 
-**Entry gate:** `InSession()` dicek di `CheckIdmTaken` (BUY/SELL) dan `CheckAggressiveIdmTouch`, sejajar dengan `DailyLimitReached()` — di luar sesi, entry baru di-skip (structure/reversal LTF tetap jalan normal, cuma `OpenTrade`-nya yang di-suppress).
+**Entry gate:** `InSession()` dicek di `CheckIdmZoneEntry` dan `CheckAggressiveZoneEntry` (kedua jalur ENTRY), sejajar dengan `DailyLimitReached()` — di luar sesi, entry baru di-skip. Struktur/reversal LTF tetap jalan normal; yang di-suppress hanya entry-nya.
 
 **Profit lock di luar sesi** (`CheckSessionCloseAll`, tiap tick):
 ```
@@ -215,44 +237,53 @@ Kalau !InSession() DAN total (realized+floating, SAMA formula dengan
 ```
 Ini yang menjawab kasus "PnL belum mencapai `InpDailyMaxProfit` tapi udah positif waktu jam tutup" — begitu keluar dari jendela sesi dan total masih positif (berapa pun besarnya, tidak perlu sampai `InpDailyMaxProfit`), semua posisi ditutup supaya profit tidak "dibalikin" di luar jam trading. Kalau PnL negatif saat itu, posisi TIDAK dipaksa tutup — tetap jalan (nunggu balik positif, kena `InpDailyMaxLoss`, atau ditutup manual).
 
-## Aggressive Entry Mode (opsional)
+## News Blackout (Gate Entry)
 
-Default (**confirmation entry**): entry hanya jalan setelah bar close, memakai `bar.close` untuk memutuskan sweep (no body break) vs body break. Ini filter inti strategi — entry cuma terjadi kalau close sudah reclaim idm.
-
-**Aggressive entry** (`InpUseAggressiveEntry=true`): entry market langsung begitu harga MENYENTUH idm intrabar (per-tick, bar belum close), tanpa nunggu konfirmasi reclaim. Begitu tersentuh, structure LANGSUNG di-reverse (bukan nunggu close) dengan trik: origin & retroactive rebuild pakai bar CLOSED terakhir sebagai boundary (bukan bar yang lagi forming) — jadi datanya tetap 100% final, tidak ada repaint risk.
+`InpNewsFilterEnabled` (default aktif) memblokir entry baru di sekitar rilis kalender high-impact yang menyangkut mata uang simbol ini — XAUUSD mengecek event XAU **dan** USD.
 
 ```
-Per-tick, saat idm LTF tersentuh (CheckAggressiveIdmTouch):
-  TREND_UP   & Bid < idm → arah BUY (fade)
-  TREND_DOWN & Bid > idm → arah SELL (fade)
-
-  1. Guard: 1x entry per bar forming (g_aggressiveFiredBarTime), daily limit
-     dicek di titik ini (kalau gagal, tidak entry; confirmation-mode di bar
-     close tetap jadi fallback normal)
-  2. ReverseToDowntrend/Uptrend(rates[1])  ← rates[1] = bar LTF CLOSED terakhir,
-     BUKAN bar yang sedang forming. Origin + retroactive structure LTF 100%
-     dari data final, g_trend & g_idmPrice (LTF) langsung pindah ke trend baru.
-     (Struktur LTF ini dipakai buat entry-decision bar berikutnya.)
-  3. Equilibrium via HtfEntryAllowed (HTF) — SAMA PERSIS logic-nya seperti
-     confirmation entry (equilibrium BISA dievaluasi di titik touch karena
-     rangenya dari HTF, bukan dari bar LTF yang lagi forming).
-  4. OpenTrade(isBuy, entry) — fixed lot, tanpa SL/TP
-  5. AddEntry(ticket, dir) — masuk tracking normal
-
-**Anti-double-entry:** begitu bar LTF yang disentuh itu BENERAN close, trend/idm
-sudah pindah ke yang baru (dari step 2) — jadi `CheckIdmTaken` di closed-bar bisa
-saja NEMU "taken" lagi untuk trend baru itu PADA BAR YANG SAMA (kalau bar-nya
-lebar), dan mau buka entry KEDUA untuk event yang sebenarnya sama. Dicegah via
-guard `bar.time == g_aggressiveFiredBarTime` di `CheckIdmTaken` — kalau match,
-entry di-skip (structure/reverse tetap jalan normal, cuma bagian OpenTrade-nya
-yang disuppress buat bar itu).
-
-Begitu bar LTF yang tadi "disentuh" itu BENERAN close (flow OnTick standar,
-tidak ada kode khusus tambahan): UpdateStructure() melanjutkan structure LTF
-yang sudah di-reverse duluan di step 2, seperti bar manapun.
+Window blokir: [now - InpNewsMinutesAfter, now + InpNewsMinutesBefore]
+Importance minimum: InpNewsMinImportance (default CALENDAR_IMPORTANCE_HIGH)
 ```
 
-**Beda vs confirmation entry:** aggressive entry mengorbankan filter "no body break" LTF (entry di setiap sentuhan idm LTF, bukan cuma yang confirmed reclaim) demi harga entry lebih awal. Equilibrium gate sama persis (HTF-referenced) — bedanya cuma KAPAN entry-nya dieksekusi.
+Hanya gate entry — **posisi yang sudah terbuka tidak ditutup**. Kalau kalender MT5 tidak tersedia (mis. Strategy Tester tanpa data ter-cache), filter ini otomatis non-blocking, bukan memblokir semuanya. Detail cache & implementasi: [News Blackout](architecture.md#news-blackout).
+
+## Batch Cooldown
+
+`InpBatchCooldownMinutes` — setelah sebuah batch benar-benar flat, entry baru ditahan selama N menit. Mencegah batch baru langsung nyambung ke batch yang baru saja ditutup, sehingga tiap batch berdiri sebagai satu "ronde" yang terpisah.
+
+## Entry Decoupling (Zone Entry)
+
+**Entry dan reversal sudah dipisah total.** Dulu keduanya satu fungsi: idm ter-sweep → reverse structure → langsung `OpenTrade`. Sekarang dua jalur independen yang tidak saling menunggu:
+
+| | Fungsi | Level pemicu | Tugas |
+|---|---|---|---|
+| **Reversal** | `CheckIdmTaken` (bar-close)<br>`CheckAggressiveIdmTouch` (per-tick) | `g_idmPrice` — sweep PENUH idm | Hanya membalik struktur. **Tidak pernah entry.** |
+| **Entry** | `CheckIdmZoneEntry` (bar-close)<br>`CheckAggressiveZoneEntry` (per-tick) | `g_idmZonePrice` — extreme BERLAWANAN dari bar idm | Hanya entry. **Tidak menyentuh struktur.** |
+
+`g_idmZonePrice` adalah boundary yang lebih LONGGAR: ia extreme berlawanan dari bar idm (uptrend: `high` dari bar SL yang jadi idm), jadi harga menyentuhnya **lebih dulu** saat retrace, sebelum sampai ke sweep penuh `g_idmPrice`. Konsekuensinya entry bisa terjadi sebelum, sesudah, atau **tanpa** reversal itu pernah terjadi sama sekali.
+
+**One-shot per level idm:** `g_idmZoneEntryFiredTime == g_idmTime` dipakai bersama oleh kedua jalur entry — jadi hanya SATU entry per level idm, tidak peduli jalur mana yang menangkap duluan. Ini yang menggantikan guard anti-double-entry versi lama.
+
+**Syarat `g_idmConfirmed`:** kedua jalur entry menolak idm yang masih dangling (origin tunggal tepat setelah reversal, belum punya swing lawan) — itu belum idm sungguhan, cuma ekor leg yang baru selesai. `CheckAggressiveIdmTouch` juga mensyaratkan ini sejak commit `9f81db4`, kalau tidak satu wick tunggal bisa membalik trend bolak-balik tanpa struktur nyata di belakangnya.
+
+## Aggressive Mode (`InpUseAggressiveEntry`)
+
+Toggle ini mengaktifkan **jalur per-tick** untuk keduanya (reversal dan zone entry). Kalau `false`, hanya jalur bar-close yang jalan.
+
+**Reversal per-tick** (`CheckAggressiveIdmTouch`): begitu Bid menembus `g_idmPrice` intrabar, struktur dibalik SAAT ITU JUGA tanpa menunggu bar close. Anti-repaint-nya: origin dan retroactive rebuild memakai **bar CLOSED terakhir** (`rates[1]`) sebagai boundary, bukan bar yang sedang terbentuk — jadi seluruh perhitungan tetap dari data final.
+
+```
+Per-tick (CheckAggressiveIdmTouch):
+  Guard: g_idmTaken, g_idmPrice > 0, !g_initMode, g_idmConfirmed
+  TREND_UP   & Bid < g_idmPrice → ReverseToDowntrend(rates[1])
+  TREND_DOWN & Bid > g_idmPrice → ReverseToUptrend(rates[1])
+  1x per bar forming (g_aggressiveFiredBarTime)
+```
+
+Begitu bar yang disentuh itu benar-benar close, ia mengalir lewat `UpdateStructure()` normal seperti bar mana pun — melanjutkan struktur yang sudah dibalik duluan.
+
+**Trade-off:** jalur per-tick mengorbankan filter "no body break" (bereaksi di setiap sentuhan, bukan hanya yang close-nya sudah reclaim) demi harga lebih awal. Gate HTF equilibrium sama persis di kedua jalur — yang beda cuma KAPAN dieksekusi.
 
 ## Contoh Full Cycle (Chained Example)
 

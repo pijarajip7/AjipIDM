@@ -11,8 +11,8 @@
 // as the session filter on unparseable input.
 // Result is cached for NEWS_CACHE_SECONDS so it isn't recomputed every
 // tick — the blackout window is minutes wide, a short cache lag is
-// immaterial. Only used to gate new entries (CheckIdmTaken/
-// CheckAggressiveIdmTouch, AjipIDM_Entry.mqh); does not close existing
+// immaterial. Only used to gate new entries (CheckIdmZoneEntry/
+// CheckAggressiveZoneEntry, AjipIDM_Entry.mqh); does not close existing
 // positions.
 //==================================================================
 bool InNewsBlackout()

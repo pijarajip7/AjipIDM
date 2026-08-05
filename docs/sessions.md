@@ -105,3 +105,50 @@
 - `WriteTradeCsv()` (AjipIDM_Trade.mqh) dipanggil dari `CheckEntryInvalidation` pas posisi terdeteksi closed (SEBELUM `RemoveEntry`) — query exit info via `HistorySelectByPosition`, append row ke `MQL5/Files/AjipIDM_Trades_<symbol>_<magic>.csv` (header ditulis sekali kalau file belum ada).
 - Panel: 2 baris baru "Open MFE"/"Open MAE" — sum floating mfe/mae semua tracked open positions, refresh sama cadence-nya dengan baris lain (per closed bar), tapi nilai underlying-nya sendiri sudah live per-tick.
 - Body-break invalidation TIDAK memicu CSV write (posisi belum benar-benar closed) — hanya TP/SL/BE hit (posisi hilang dari broker) yang di-log.
+
+### Session 17 (2026-07-27): HTF jadi sumber TP, equilibrium, dan invalidation
+- Refactor besar: TP, equilibrium filter, dan invalidation semuanya direferensikan ke HTF, bukan lagi struktur LTF.
+
+### Session 18 (2026-07-28): HTF alignment + anti double-entry + body-break filter
+- Wajib HTF trend align sebelum menghitung TP/equilibrium entry — tanpa ini, referensi swing diambil dari range berbentuk salah (mis. BUY saat HTF DOWN memakai high yang lebih rendah sebagai referensi, membuat split equilibrium tidak bermakna dan nyaris selalu lolos).
+- Cegah double entry antara aggressive touch dan confirmation close pada bar yang sama.
+- Tambah filter HTF prev-swing body-break: swing sebelum referensi harus pernah ditembus BODY candle HTF, bukan sekadar disapu wick — kalau cuma swept, leg-nya lemah secara struktural dan entry dilewati.
+
+### Session 19 (2026-07-29): Outside bar resolution
+- Perbaiki resolusi outside bar yang menghilangkan pending swing, dan penanganan outside bar beruntun.
+
+### Session 20 (2026-07-30): Varian fixed lot tanpa SL/TP
+- Ganti total ke varian fixed lot: `OpenTrade` selalu SL=0 TP=0, exit lewat one-time partial close + daily close-all.
+- Panel menampilkan status daily target/max-loss.
+- SL pindah ke breakeven setelah partial close.
+
+### Session 21 (2026-07-31): Session filter + batch report + batch limit
+- Trading session filter (jam buka/tutup) + profit-lock di luar sesi.
+- Report CSV per-setup (batch) menggantikan baris per-posisi.
+- Batch-level target/max-loss dipisah dari daily limit — batch tidak memblokir entry baru.
+- Tuning default input untuk eksperimen fixed-lot + partial-close.
+
+### Session 22 (2026-08-01): Logging toggle + news filter
+- `InpEnableLog` untuk mematikan seluruh Print/PrintFormat diagnostik.
+- News blackout filter high-impact sebagai gate entry (tidak menutup posisi terbuka).
+
+### Session 23 (2026-08-03): Entry decoupling + orchestrator multi-akun
+- **Perubahan arsitektur besar:** entry dilepas total dari reversal struktural. `CheckIdmTaken`/`CheckAggressiveIdmTouch` sekarang murni reversal; entry pindah ke `CheckIdmZoneEntry`/`CheckAggressiveZoneEntry` yang dipicu `g_idmZonePrice` (extreme berlawanan dari bar idm) — boundary lebih longgar yang tersentuh lebih dulu saat retrace.
+- Fix: batch di-flush begitu kosong, bukan hanya saat close-all (Round 11).
+- Handoff signal multi-akun di EA + orchestrator Python.
+- Fix: nama batch CSV menyertakan login akun (Round 13).
+- Fix: `g_idmConfirmed` mencegah entry dari dangling origin-as-idm (Round 12).
+
+### Session 24 (2026-08-04): Dashboard + grouping input + final target
+- Dashboard monitoring multi-akun + launcher satu perintah.
+- Deteksi akun yang tidak ada EA-nya (lewat heartbeat).
+- Input EA dikelompokkan `input group`; tambah batch cooldown dan final profit target.
+- Fix: dashboard membaca folder Files yang salah sehingga statistik batch selalu kosong (Round 13).
+
+### Session 25 (2026-08-05): Aggregate SL, kill switch, dan pengerasan
+- Kill switch max-loss level akun (`InpFinalMaxLoss`) + cap lot per arah (`InpMaxTotalLots`) + aggregate SL (budget max-loss terkecil dibagikan ke posisi yang belum punya stop, per arah dengan budget penuh masing-masing).
+- Fix: `RebuildTrackedPositions` memulihkan tracking posisi setelah re-init (Round 14).
+- Fix: partial close tidak lagi mematikan ticket permanen saat penolakan broker pertama (Round 14).
+- Fix: reversal agresif mensyaratkan `g_idmConfirmed` — sumber flip-flop reversal yang sering terlihat di log (Round 15). Logging reversal diperkaya (Bid, OHLC bar closed & forming, window scan).
+- Tambah `InpAllowHedging` — BUY/SELL tidak boleh bersamaan saat `false`, memblokir entry baru alih-alih menutup paksa sisi lawan. Untuk prop firm yang melarang hedging.
+- Sinkronisasi dokumentasi menyeluruh: `concept.md` masih mendeskripsikan alur entry lama (pra-decoupling Session 23), `architecture.md` masih memuat daftar input lama; keduanya diperbarui bersama README, bugfixes (Round 11–15), dan sessions.
