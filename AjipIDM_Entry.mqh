@@ -55,6 +55,78 @@ void AddEntry(ulong ticket, int dir)
   }
 
 //==================================================================
+// REBUILD TRACKED POSITIONS — called once from OnInit. Repopulates
+// g_entries from whatever's already open for this symbol+magic when the EA
+// (re)starts — recompile, manual reattach, chart timeframe change, terminal
+// restart. Without this, positions opened by an EARLIER run stay open at
+// the broker but the EA has no memory of them: CheckPartialClose never
+// fires for them, RecalculateAggregateSL never protects them,
+// MaxTotalLotsReached doesn't count their volume, and if a close-all later
+// closes them, their outcome silently never reaches the batch CSV (nothing
+// in g_entries for CloseAllAndFlushBatch to fold into AccumulateBatchStats).
+//
+// partialClosed is INFERRED, not known for certain: if the position's
+// current SL sits within a couple points of its own entry price, that can
+// only have been set by CheckPartialClose's breakeven step (a fresh
+// OpenTrade leaves SL at 0, and RecalculateAggregateSL never lands exactly
+// on entry price) — so treat it as already partial-closed and leave it
+// alone. Otherwise assume it hasn't happened yet, which is the safe
+// default: worst case a position with a hand-modified SL gets a partial
+// close attempted again, rather than a position still at full risk being
+// silently skipped forever.
+//
+// Only rebuilds tracking for what's still open RIGHT NOW — any positions
+// from the same interrupted batch that already fully closed before this
+// restart are unrecoverable (their P&L was never accumulated and there's no
+// record of which trades belonged to which batch), so batch stats picked
+// back up from here reflect only what survived the restart, not the whole
+// original batch.
+//==================================================================
+void RebuildTrackedPositions()
+  {
+   datetime firstTime = 0;
+   datetime lastTime  = 0;
+   int      recovered = 0;
+
+   int n = PositionsTotal();
+   for(int i = 0; i < n; i++)
+     {
+      ulong ticket = PositionGetTicket(i);
+      if(ticket == 0) continue;
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != InpMagicNumber) continue;
+
+      int      dir         = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? 1 : -1;
+      double   entryPrice  = PositionGetDouble(POSITION_PRICE_OPEN);
+      datetime entryTime   = (datetime)PositionGetInteger(POSITION_TIME);
+      double   curSl       = PositionGetDouble(POSITION_SL);
+      bool     atBreakeven = (curSl > 0.0 && MathAbs(curSl - entryPrice) < g_point * 2.0);
+
+      int idx = ArraySize(g_entries);
+      ArrayResize(g_entries, idx + 1);
+      g_entries[idx].ticket        = ticket;
+      g_entries[idx].dir           = dir;
+      g_entries[idx].entryPrice    = entryPrice;
+      g_entries[idx].entryTime     = entryTime;
+      g_entries[idx].mfe           = PositionGetDouble(POSITION_PROFIT);
+      g_entries[idx].mae           = PositionGetDouble(POSITION_PROFIT);
+      g_entries[idx].partialClosed = atBreakeven;
+
+      if(firstTime == 0 || entryTime < firstTime) firstTime = entryTime;
+      if(entryTime > lastTime) lastTime = entryTime;
+      recovered++;
+     }
+
+   if(recovered == 0) return;
+
+   g_batchActive         = true;
+   g_batchFirstEntryTime = firstTime;
+   g_batchLastEntryTime  = lastTime;
+
+   if(InpEnableLog) PrintFormat("AjipIDM: Rebuilt tracking for %d pre-existing position(s) on restart.", recovered);
+  }
+
+//==================================================================
 // GET TRACKED OPEN VOLUME — sum of POSITION_VOLUME across tracked positions
 // matching dirFilter (1=BUY, -1=SELL). Partial closes already shrink this
 // naturally, since they reduce POSITION_VOLUME on the same ticket.

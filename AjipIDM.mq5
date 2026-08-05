@@ -120,7 +120,8 @@ int OnInit()
    g_sessionEndMin        = endMin;
    g_sessionFilterEnabled = sessionParsedOk && (startMin != endMin);
 
-   CaptureStartingBalance(); // baseline for InpFinalProfitTarget — no-op if disabled
+   RebuildTrackedPositions(); // recover g_entries tracking for positions opened by an earlier run of this EA
+   CaptureStartingBalance();  // baseline for InpFinalProfitTarget/InpFinalMaxLoss — no-op if disabled
 
    // Build initial structure from lookback candles
    if(!InitStructure())
