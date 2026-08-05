@@ -499,7 +499,10 @@ bool HtfEntryAllowed(bool isBuy, double entryPrice)
       return false;
      }
 
-   double equilibrium = (g_htfIdmPrice + reference) / 2.0;
+   // Same value drawn on the chart — see GetHtfEquilibrium (AjipIDM_HtfContext.mqh).
+   // It derives `reference` from g_htfTrend, which the first check above already
+   // pinned to match isBuy, so this is identical to the inline formula it replaced.
+   double equilibrium = GetHtfEquilibrium();
    bool   wrongSide    = isBuy ? (entryPrice > equilibrium) : (entryPrice < equilibrium);
    if(wrongSide)
      {

@@ -130,15 +130,32 @@ BUY:  entry price harus <= equilibrium (discount) → kalau lebih tinggi, SKIP
 SELL: entry price harus >= equilibrium (premium)  → kalau lebih rendah, SKIP
 ```
 
+Nilainya dihitung `GetHtfEquilibrium()` (`AjipIDM_HtfContext.mqh`) dan dipakai
+bersama oleh gate entry DAN garis di chart — satu sumber, jadi yang terlihat di
+layar persis yang ditegakkan. Fungsi itu menurunkan arah dari `g_htfTrend`, bukan
+dari parameter, karena `HtfEntryAllowed` sudah menolak entry lebih dulu kalau
+`g_htfTrend` tidak searah — jadi hanya satu equilibrium yang pernah hidup pada
+satu waktu.
+
 Min-points filter (`InpMinTpPoints`) tetap dicek di sini juga — jarak reference
 ke entry harus >= `InpMinTpPoints`, sekadar filter kualitas setup (reference
 swing HTF-nya jangan terlalu dekat), bukan penentu TP karena tidak ada TP.
 Kalau `g_htfIdmPrice` belum siap (belum ke-init), entry di-skip.
 
-**HTF structure/idm digambar juga di chart** (`DrawHtfSwings()`, aktif kalau `InpDrawLines`):
+**HTF structure/idm/equilibrium digambar juga di chart** (`DrawHtfSwings()`, aktif kalau `InpDrawLines`):
 - Object prefix `g_htfObjPrefix` ("AjipIDMHtf_") — terpisah dari `g_objPrefix` LTF dan `g_panelPrefix`, supaya tidak saling ke-wipe oleh `ObjectsDeleteAll`.
-- Visual dibedakan dari garis LTF: swing line dotted (`STYLE_DOT`, width 2, ungu untuk SH / emas untuk SL) vs LTF solid (dodger blue/orange red). idm line HTF kuning dash-dot vs idm LTF hitam dash.
-- Redraw dipanggil tiap HTF bar closed diproses, plus di `InitHtfStructure` dan tiap kali `HtfReverseToDowntrend`/`HtfReverseToUptrend` (mirror pola LTF).
+- Warna swing SAMA dengan LTF (DodgerBlue saat trend UP, OrangeRed saat DOWN) — yang membedakan **width dan style**:
+
+  | Garis | Objek | Warna | Width | Style |
+  |---|---|---|---|---|
+  | Swing LTF | `OBJ_TREND` | DodgerBlue / OrangeRed | 1 | solid |
+  | Swing HTF | `OBJ_TREND` | DodgerBlue / OrangeRed | 2 | dot |
+  | idm LTF | `OBJ_HLINE` | hitam | 1 | dash |
+  | idm HTF | `OBJ_HLINE` | hitam | 1 | solid |
+  | **Equilibrium HTF** | `OBJ_HLINE` | **MediumPurple** | 1 | **dash** |
+
+- Garis equilibrium punya tooltip berisi nilainya + arah yang diizinkan (mis. `HTF Equilibrium 4198.70400 — BUY only at/below this level`). Tidak digambar selama HTF trend/idm/reference belum lengkap — persis kondisi saat tidak ada entry yang bisa lolos gate.
+- Redraw dipanggil tiap HTF bar closed diproses, plus di `InitHtfStructure` dan tiap kali `HtfReverseToDowntrend`/`HtfReverseToUptrend` (mirror pola LTF) — jadi garisnya tidak pernah tertinggal satu bar setelah reversal.
 
 ## Fixed Lot, No SL/TP at Entry
 

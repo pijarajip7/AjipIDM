@@ -638,6 +638,36 @@ double GetLastHtfSLUPrice()
   }
 
 //==================================================================
+// HTF EQUILIBRIUM — midpoint of [g_htfIdmPrice, last opposite HTF swing].
+// This is the discount/premium threshold every entry is gated on: BUY only
+// at/below it, SELL only at/above (see HtfEntryAllowed, AjipIDM_Entry.mqh).
+//
+// Direction is taken from g_htfTrend rather than a parameter, because
+// HtfEntryAllowed rejects the entry outright unless g_htfTrend already
+// matches the direction — so by the time equilibrium matters, only ONE of
+// the two is ever live. That makes this safe to call from the drawing code
+// too, where no direction is in hand.
+//
+// Returns 0.0 when it can't be computed (no HTF trend yet, no HTF idm, or
+// no reference swing) — the same conditions that make HtfEntryAllowed
+// reject the entry anyway. Single source of truth for the formula so the
+// line drawn on the chart can't drift from the gate that's enforced.
+//==================================================================
+double GetHtfEquilibrium()
+  {
+   if(g_htfIdmPrice <= 0.0) return(0.0);
+
+   double reference = 0.0;
+   if(g_htfTrend == TREND_UP)        reference = GetLastHtfSHDPrice();
+   else if(g_htfTrend == TREND_DOWN) reference = GetLastHtfSLUPrice();
+   else                              return(0.0);
+
+   if(reference <= 0.0) return(0.0);
+
+   return((g_htfIdmPrice + reference) / 2.0);
+  }
+
+//==================================================================
 // HTF PREV SWING BODY-BROKEN FILTER — structural quality check on the
 // reference swing (GetLastHtfSHDPrice/SLUPrice, used to derive equilibrium):
 // was the SAME-TYPE swing right before it confirmed by a candle CLOSE beyond
@@ -838,6 +868,27 @@ void DrawHtfSwings()
       ObjectSetInteger(0, idmName, OBJPROP_WIDTH, 1);
       ObjectSetInteger(0, idmName, OBJPROP_STYLE, STYLE_SOLID);
       ObjectSetInteger(0, idmName, OBJPROP_SELECTABLE, false);
+     }
+
+   // Equilibrium line — the discount/premium threshold entries are gated on.
+   // BUY is only allowed at/below it, SELL only at/above. Drawn from the SAME
+   // helper HtfEntryAllowed uses, so what's on screen is what's enforced.
+   // Absent (0.0) while HTF trend/idm/reference aren't all established yet —
+   // exactly when no entry could pass the gate anyway.
+   double equilibrium = GetHtfEquilibrium();
+   if(equilibrium > 0.0)
+     {
+      string eqName = g_htfObjPrefix + "EQ";
+      ObjectCreate(0, eqName, OBJ_HLINE, 0, 0, equilibrium);
+      ObjectSetInteger(0, eqName, OBJPROP_COLOR, clrMediumPurple);
+      ObjectSetInteger(0, eqName, OBJPROP_WIDTH, 1);
+      ObjectSetInteger(0, eqName, OBJPROP_STYLE, STYLE_DASH);
+      ObjectSetInteger(0, eqName, OBJPROP_SELECTABLE, false);
+      ObjectSetString(0, eqName, OBJPROP_TOOLTIP,
+                      StringFormat("HTF Equilibrium %.5f — %s only %s this level",
+                                   equilibrium,
+                                   g_htfTrend == TREND_UP ? "BUY" : "SELL",
+                                   g_htfTrend == TREND_UP ? "at/below" : "at/above"));
      }
 
    ChartRedraw();
