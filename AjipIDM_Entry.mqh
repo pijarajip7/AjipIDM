@@ -524,6 +524,13 @@ void CheckAggressiveIdmTouch()
    if(g_idmTaken) return;
    if(g_idmPrice <= 0.0) return;
    if(g_initMode) return;
+   // Require a CONFIRMED idm (opposite swing after it) before allowing an
+   // aggressive structural reversal. A dangling single-swing origin (just
+   // after a reversal, g_idmConfirmed=false) can get re-swept by a single
+   // wick with zero real structure behind it, causing immediate flip-flop
+   // reversals. CheckAggressiveZoneEntry already requires this for entries;
+   // mirror it here for reversals too.
+   if(!g_idmConfirmed) return;
 
    // Touch uses Bid — matches the Bid-based OHLC series g_idmPrice is derived from.
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -540,8 +547,15 @@ void CheckAggressiveIdmTouch()
    double oldIdm = g_idmPrice; // LTF level being swept — for logging only
    g_aggressiveFiredBarTime = rates[0].time;
 
-   if(InpEnableLog) PrintFormat("AjipIDM: AGGRESSIVE %s idm touch @ %.5f — reversing early using last closed bar as boundary.",
-               touchBuy ? "BUY" : "SELL", oldIdm);
+   // Detailed diagnostic: bid + full OHLC of both the last CLOSED bar (the
+   // reversal boundary) and the still-FORMING bar (where the sweep tick
+   // happened) — enough to reconstruct the exact price path without needing
+   // to cross-reference chart candles by hand.
+   if(InpEnableLog) PrintFormat("AjipIDM: AGGRESSIVE %s idm touch @ %.5f (bid=%.5f) — reversing early. "
+               "LastClosed[%s O=%.5f H=%.5f L=%.5f C=%.5f] Forming[%s O=%.5f H=%.5f L=%.5f so-far]",
+               touchBuy ? "BUY" : "SELL", oldIdm, bid,
+               TimeToString(rates[1].time), rates[1].open, rates[1].high, rates[1].low, rates[1].close,
+               TimeToString(rates[0].time), rates[0].open, rates[0].high, rates[0].low);
 
    // rates[1] = last CLOSED bar (NOT the forming touch bar) — keeps origin
    // scan + retroactive rebuild on final data only.

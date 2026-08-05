@@ -205,8 +205,17 @@ void OnTick()
    // checked FIRST: g_idmZonePrice sits closer to price than the full
    // g_idmPrice sweep, so it's reached first as price retraces toward it —
    // entry is fully decoupled from reversal, see AjipIDM_Entry.mqh.
+   ENUM_TREND trendBeforeAggressive = g_trend;
    CheckAggressiveZoneEntry();
    CheckAggressiveIdmTouch();
+   // CheckAggressiveIdmTouch can flip g_trend mid-bar (ReverseToDowntrend/Up),
+   // but the panel refresh below only runs on a closed-bar boundary — without
+   // this, the on-chart Trend label would keep showing the OLD trend for up
+   // to a full bar's duration after an aggressive reversal already fired
+   // (visible in the log) internally. Only refresh here, not every tick,
+   // since UpdatePanel() also recomputes week/month realized PnL from
+   // history — not something to redo on every single tick.
+   if(g_trend != trendBeforeAggressive) UpdatePanel();
 
    MqlRates rates[];
    ArraySetAsSeries(rates, true);

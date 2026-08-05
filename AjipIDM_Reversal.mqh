@@ -11,13 +11,14 @@ void ReverseToDowntrend(MqlRates &takenBar)
    double originPrice = 0.0;
    double originZone   = 0.0; // opposite extreme (low) of the SAME origin bar
    datetime originTime = 0;
+   datetime legStart   = 0; // kept for diagnostic logging below
 
    // Scan actual bars from uptrend leg start to taken bar for TRUE highest high.
    // g_pbSwings[0] = origin of current uptrend leg.
    int npb = ArraySize(g_pbSwings);
    if(npb > 0)
      {
-      datetime legStart = g_pbSwings[0].time;
+      legStart = g_pbSwings[0].time;
       int legStartShift = iBarShift(_Symbol, InpTimeframe, legStart);
       int takenShift    = iBarShift(_Symbol, InpTimeframe, takenBar.time);
       if(legStartShift >= 0 && takenShift >= 0 && legStartShift >= takenShift)
@@ -71,8 +72,10 @@ void ReverseToDowntrend(MqlRates &takenBar)
       return;
      }
 
-   if(InpEnableLog) PrintFormat("AjipIDM: ReverseToDowntrend origin = highest high = %.5f@%s",
-               originPrice, TimeToString(originTime));
+   if(InpEnableLog) PrintFormat("AjipIDM: ReverseToDowntrend origin = highest high = %.5f@%s "
+               "(scan legStart=%s takenBar=%s O=%.5f H=%.5f L=%.5f C=%.5f)",
+               originPrice, TimeToString(originTime), TimeToString(legStart),
+               TimeToString(takenBar.time), takenBar.open, takenBar.high, takenBar.low, takenBar.close);
 
    // Switch trend
    g_trend = TREND_DOWN;
@@ -125,12 +128,13 @@ void ReverseToUptrend(MqlRates &takenBar)
    double originPrice = 0.0;
    double originZone   = 0.0; // opposite extreme (high) of the SAME origin bar
    datetime originTime = 0;
+   datetime legStart   = 0; // kept for diagnostic logging below
 
    // Scan actual bars from downtrend leg start to taken bar for TRUE lowest low.
    int npb = ArraySize(g_pbSwings);
    if(npb > 0)
      {
-      datetime legStart = g_pbSwings[0].time;
+      legStart = g_pbSwings[0].time;
       int legStartShift = iBarShift(_Symbol, InpTimeframe, legStart);
       int takenShift    = iBarShift(_Symbol, InpTimeframe, takenBar.time);
       if(legStartShift >= 0 && takenShift >= 0 && legStartShift >= takenShift)
@@ -184,8 +188,10 @@ void ReverseToUptrend(MqlRates &takenBar)
       return;
      }
 
-   if(InpEnableLog) PrintFormat("AjipIDM: ReverseToUptrend origin = lowest low = %.5f@%s",
-               originPrice, TimeToString(originTime));
+   if(InpEnableLog) PrintFormat("AjipIDM: ReverseToUptrend origin = lowest low = %.5f@%s "
+               "(scan legStart=%s takenBar=%s O=%.5f H=%.5f L=%.5f C=%.5f)",
+               originPrice, TimeToString(originTime), TimeToString(legStart),
+               TimeToString(takenBar.time), takenBar.open, takenBar.high, takenBar.low, takenBar.close);
 
    // Switch trend
    g_trend = TREND_UP;
