@@ -65,15 +65,19 @@ void AddEntry(ulong ticket, int dir)
 // closes them, their outcome silently never reaches the batch CSV (nothing
 // in g_entries for CloseAllAndFlushBatch to fold into AccumulateBatchStats).
 //
-// partialClosed is INFERRED, not known for certain: if the position's
-// current SL sits within a couple points of its own entry price, that can
-// only have been set by CheckPartialClose's breakeven step (a fresh
-// OpenTrade leaves SL at 0, and RecalculateAggregateSL never lands exactly
-// on entry price) — so treat it as already partial-closed and leave it
-// alone. Otherwise assume it hasn't happened yet, which is the safe
-// default: worst case a position with a hand-modified SL gets a partial
-// close attempted again, rather than a position still at full risk being
-// silently skipped forever.
+// partialClosed is always seeded false, even for a position whose SL
+// happens to already sit at its entry price. That SL could be a genuine
+// breakeven from CheckPartialClose — or it could just as easily be
+// RecalculateAggregateSL landing there by coincidence (a tight risk budget
+// relative to volume can put the aggregate SL arbitrarily close to entry on
+// a position that was NEVER partial-closed). There is no reliable way to
+// tell those apart from the position's state alone, and the two wrong
+// guesses are not symmetric: seeding true on a guess risks skipping
+// CheckPartialClose for that ticket forever (silently — it just never fires
+// again), whereas seeding false in the rare case where it truly was already
+// breakeven only risks one redundant partial-close attempt on the
+// remainder, which does no harm. Always false is the safe direction to be
+// wrong in.
 //
 // Only rebuilds tracking for what's still open RIGHT NOW — any positions
 // from the same interrupted batch that already fully closed before this
@@ -96,11 +100,9 @@ void RebuildTrackedPositions()
       if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
       if(PositionGetInteger(POSITION_MAGIC) != InpMagicNumber) continue;
 
-      int      dir         = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? 1 : -1;
-      double   entryPrice  = PositionGetDouble(POSITION_PRICE_OPEN);
-      datetime entryTime   = (datetime)PositionGetInteger(POSITION_TIME);
-      double   curSl       = PositionGetDouble(POSITION_SL);
-      bool     atBreakeven = (curSl > 0.0 && MathAbs(curSl - entryPrice) < g_point * 2.0);
+      int      dir        = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? 1 : -1;
+      double   entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      datetime entryTime  = (datetime)PositionGetInteger(POSITION_TIME);
 
       int idx = ArraySize(g_entries);
       ArrayResize(g_entries, idx + 1);
@@ -110,7 +112,7 @@ void RebuildTrackedPositions()
       g_entries[idx].entryTime     = entryTime;
       g_entries[idx].mfe           = PositionGetDouble(POSITION_PROFIT);
       g_entries[idx].mae           = PositionGetDouble(POSITION_PROFIT);
-      g_entries[idx].partialClosed = atBreakeven;
+      g_entries[idx].partialClosed = false;
 
       if(firstTime == 0 || entryTime < firstTime) firstTime = entryTime;
       if(entryTime > lastTime) lastTime = entryTime;
@@ -305,8 +307,6 @@ void CheckPartialClose()
 
       if(profitPoints < InpPartialClosePoints) continue;
 
-      g_entries[i].partialClosed = true; // one-shot regardless of outcome below
-
       double posVolume   = PositionGetDouble(POSITION_VOLUME);
       double closeVolume = posVolume * (InpPartialClosePercent / 100.0);
       closeVolume = MathFloor(closeVolume / g_volStep) * g_volStep;
@@ -314,6 +314,9 @@ void CheckPartialClose()
       double remainder = posVolume - closeVolume;
       if(closeVolume < g_volMin || remainder < g_volMin)
         {
+         // Deterministic — posVolume won't grow on its own, so this will
+         // never succeed later either. Safe to give up permanently here.
+         g_entries[i].partialClosed = true;
          if(InpEnableLog) PrintFormat("AjipIDM: Partial close skip — ticket=%I64u volume=%.2f too small to split at %.0f%%",
                      g_entries[i].ticket, posVolume, InpPartialClosePercent);
          continue;
@@ -321,10 +324,16 @@ void CheckPartialClose()
 
       if(!trade.PositionClosePartial(g_entries[i].ticket, closeVolume))
         {
-         if(InpEnableLog) PrintFormat("AjipIDM: Partial close FAILED. Ticket=%I64u retcode=%d (%s)",
+         // NOT marked done — broker rejection (requote, trade context busy,
+         // temporary connectivity) is often transient. Leaving partialClosed
+         // false lets this retry next tick instead of riding un-split
+         // forever off one failed attempt.
+         if(InpEnableLog) PrintFormat("AjipIDM: Partial close FAILED, will retry. Ticket=%I64u retcode=%d (%s)",
                      g_entries[i].ticket, trade.ResultRetcode(), trade.ResultRetcodeDescription());
          continue;
         }
+
+      g_entries[i].partialClosed = true; // now genuinely done — the split succeeded
 
       if(InpEnableLog) PrintFormat("AjipIDM: Partial close done. Ticket=%I64u closed=%.2f remaining=%.2f (+%.0f pts)",
                   g_entries[i].ticket, closeVolume, remainder, profitPoints);
