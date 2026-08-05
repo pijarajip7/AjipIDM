@@ -31,6 +31,7 @@ input int              InpCandlesInit       = 50;       // Lookback candles for 
 input group "Entry & Trade Sizing"
 input double InpFixedLot     = 0.02;   // Fixed lot size per entry
 input double InpMaxTotalLots = 0.0;    // Max open volume (lots) PER DIRECTION — BUY and SELL capped independently, not combined (0=disabled)
+input bool   InpAllowHedging = true;   // Allow BUY and SELL to be open at the SAME time (false = new entry blocked while opposite side open; needed for prop firms that forbid hedging)
 input int    InpMinTpPoints  = 1000;   // Min HTF reference distance in points (setup-quality filter, skip if below)
 input ulong  InpDeviation    = 10;     // Slippage (points)
 input long   InpMagicNumber  = 99001;  // Magic number

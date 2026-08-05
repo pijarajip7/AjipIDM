@@ -162,6 +162,27 @@ bool MaxTotalLotsReached(int dir)
   }
 
 //==================================================================
+// HEDGE BLOCKED — with InpAllowHedging=false, refuses a new entry in
+// direction `dir` (1=BUY, -1=SELL) while ANY tracked position on the
+// OPPOSITE side is still open, so BUY and SELL never coexist.
+//
+// Needed for prop firms that list hedging as a forbidden strategy. Without
+// it, overlap is routine rather than exceptional: this EA flips trend on
+// every idm sweep and never closes the old side on reversal (exits run
+// purely off partial close / batch / daily / session targets), so the new
+// trend's entries land while the previous direction is still open.
+//
+// Deliberately BLOCKS the new entry instead of closing the opposite side —
+// force-closing would realize a loss the strategy never chose to take. The
+// old side still exits on its own terms; the new direction just waits.
+//==================================================================
+bool HedgeBlocked(int dir)
+  {
+   if(InpAllowHedging) return(false);
+   return(GetTrackedOpenVolume(-dir) > 0.0);
+  }
+
+//==================================================================
 // APPLY AGGREGATE SL FOR DIRECTION — helper for RecalculateAggregateSL.
 // Sums volume of tracked, non-BE positions on ONE side (dir), then sizes a
 // uniform points-distance from each of their own entry prices so that if
@@ -593,6 +614,7 @@ void CheckAggressiveZoneEntry()
    if(FinalMaxLossReached()) return;
    if(DailyLimitReached()) return;
    if(MaxTotalLotsReached(touchBuy ? 1 : -1)) return;
+   if(HedgeBlocked(touchBuy ? 1 : -1)) return; // silent: per-tick path, would spam
    if(BatchCooldownActive()) return;
    if(!InSession()) return;
    if(InNewsBlackout()) return;
@@ -717,6 +739,12 @@ void CheckIdmZoneEntry(MqlRates &bar)
    if(MaxTotalLotsReached(entryBuy ? 1 : -1))
      {
       if(InpEnableLog) PrintFormat("AjipIDM: %s skip — max total lots reached.", entryBuy ? "BUY" : "SELL");
+      return;
+     }
+   if(HedgeBlocked(entryBuy ? 1 : -1))
+     {
+      if(InpEnableLog) PrintFormat("AjipIDM: %s skip — hedging disabled, %.2f lots still open on the opposite side.",
+                  entryBuy ? "BUY" : "SELL", GetTrackedOpenVolume(entryBuy ? -1 : 1));
       return;
      }
    if(BatchCooldownActive())
