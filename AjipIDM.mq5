@@ -36,6 +36,11 @@ input int    InpMinTpPoints  = 1000;   // Min HTF reference distance in points (
 input ulong  InpDeviation    = 10;     // Slippage (points)
 input long   InpMagicNumber  = 99001;  // Magic number
 
+input group "Tick Sanity Guard"
+input double InpMaxTickJumpPoints     = 3000;  // Max plausible Bid/Ask move in ONE tick (points) before it's held as a suspected spike (0=disabled)
+input double InpMaxPnlJumpPercent     = 25.0;  // Max plausible floating PnL move in ONE tick, as % of the tightest configured max-loss budget (0=disabled, or no max-loss budget set)
+input int    InpTickSpikeConfirmTicks = 2;     // Consecutive ticks a rejected jump must persist before it's accepted as a real move
+
 input group "Risk Management — Final Target"
 input double InpFinalProfitTarget = 0.0;  // Overall (non-daily) profit target — once reached, close ALL positions and stop new trades PERMANENTLY (0=disabled)
 input double InpFinalMaxLoss      = 0.0;  // Overall (non-daily) max loss — once reached, close ALL positions and stop new trades PERMANENTLY (0=disabled)
@@ -154,6 +159,12 @@ void OnDeinit(const int reason)
 //==================================================================
 void OnTick()
   {
+   // Tick sanity guard — MUST run first, before anything below reads price
+   // or floating PnL. Computes this tick's spike-checked Bid/Ask/floating
+   // PnL exactly once and caches them (g_saneBid/g_saneAsk/g_saneFloatingPnl)
+   // for every consumer this tick. See RefreshTickSanity, AjipIDM_Trade.mqh.
+   RefreshTickSanity();
+
    // Heartbeat — self-throttled (HEARTBEAT_INTERVAL_SECONDS), safe to call
    // every tick. Only orchestrator.py reads this; a no-op if
    // InpHandoffEnabled=false (standalone single-account run).

@@ -312,15 +312,18 @@ bool BatchCooldownActive()
   }
 
 //==================================================================
-// GET FLOATING PNL — sum unrealized profit+swap of all OPEN positions
-// (this symbol + magic). Since CloseAllAndFlushBatch always closes/accounts
-// for EVERY tracked position before resetting, every currently-open
-// position belongs to the CURRENT (unflushed) batch — so this is also
-// exactly "the current batch's floating PnL", used by both
-// CheckDailyCloseAll (+ GetDailyPnL) and CheckBatchCloseAll
-// (+ g_batchRealizedPnl).
+// GET RAW FLOATING PNL — sum unrealized profit+swap of all OPEN positions
+// (this symbol + magic), straight from the broker with no sanity check.
+// Since CloseAllAndFlushBatch always closes/accounts for EVERY tracked
+// position before resetting, every currently-open position belongs to the
+// CURRENT (unflushed) batch — so this is also exactly "the current batch's
+// floating PnL", used by both CheckDailyCloseAll (+ GetDailyPnL) and
+// CheckBatchCloseAll (+ g_batchRealizedPnl).
+//
+// Only called from RefreshTickSanity below — everything else should call
+// GetFloatingPnL() instead, which serves the spike-guarded value.
 //==================================================================
-double GetFloatingPnL()
+double GetRawFloatingPnL()
   {
    double total = 0.0;
    int    n     = PositionsTotal();
@@ -334,6 +337,117 @@ double GetFloatingPnL()
       total += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
      }
    return(total);
+  }
+
+//==================================================================
+// GET FLOATING PNL — the sanitized value every close-all/limit check
+// actually uses (DailyLimitReached, FinalTargetReached, FinalMaxLossReached,
+// CheckDailyCloseAll, CheckBatchCloseAll, CheckSessionCloseAll). Just a
+// cache read — the real computation + spike guard runs once per tick in
+// RefreshTickSanity, called at the very top of OnTick. Keeping this
+// function's name/signature unchanged means none of its 7 existing callers
+// needed to change to pick up the protection.
+//==================================================================
+double GetFloatingPnL()
+  {
+   return(g_saneFloatingPnl);
+  }
+
+//==================================================================
+// TIGHTEST MAX-LOSS BUDGET — smallest of InpBatchMaxLoss/InpDailyMaxLoss/
+// InpFinalMaxLoss that's actually configured (>0). Shared by
+// RecalculateAggregateSL (AjipIDM_Entry.mqh, sizing the aggregate SL) and
+// RefreshTickSanity below (scaling how big a one-tick floating-PnL jump has
+// to be before it's suspect) — both want "the tightest risk ceiling
+// currently in force". Returns -1.0 if none of the three are configured.
+//==================================================================
+double GetTightestMaxLossBudget()
+  {
+   double budget = -1.0;
+   if(InpBatchMaxLoss > 0.0) budget = InpBatchMaxLoss;
+   if(InpDailyMaxLoss > 0.0) budget = (budget < 0.0) ? InpDailyMaxLoss : MathMin(budget, InpDailyMaxLoss);
+   if(InpFinalMaxLoss > 0.0) budget = (budget < 0.0) ? InpFinalMaxLoss : MathMin(budget, InpFinalMaxLoss);
+   return(budget);
+  }
+
+//==================================================================
+// SANITIZE READING — shared spike-rejection primitive behind
+// RefreshTickSanity. `rawValue` is this tick's fresh read (Bid, Ask, or
+// floating PnL); `lastSane` doubles as BOTH "last accepted reading" and
+// "this tick's serving value" — on rejection the function returns it
+// unchanged, so `lastSane = SanitizeReading(..., lastSane, ...)` is always
+// the right call pattern. `pending`/`streak`/`initialized` are per-quantity
+// state carried across ticks. `maxJump` is the max plausible single-tick
+// change, already in the SAME units as rawValue (points for price, dollars
+// for PnL — caller converts) — 0 disables the guard for that quantity.
+//
+// A jump beyond maxJump is held (last known-good value served instead)
+// unless it's the InpTickSpikeConfirmTicks-th CONSECUTIVE tick landing
+// within maxJump of the PREVIOUS rejected reading — not just of the old
+// baseline, so two unrelated single-tick outliers can't confirm each other
+// into a false "real move". This can never get permanently stuck: any jump
+// that actually persists gets accepted within InpTickSpikeConfirmTicks
+// ticks, so a genuine fast market never gets silently ignored.
+//==================================================================
+double SanitizeReading(double rawValue, double &lastSane, double &pending, int &streak,
+                        bool &initialized, double maxJump, string label)
+  {
+   if(maxJump <= 0.0) { lastSane = rawValue; initialized = true; streak = 0; return(rawValue); }
+
+   if(!initialized)
+     {
+      lastSane    = rawValue;
+      initialized = true;
+      streak      = 0;
+      return(rawValue);
+     }
+
+   double jump = MathAbs(rawValue - lastSane);
+   if(jump <= maxJump)
+     {
+      lastSane = rawValue;
+      streak   = 0;
+      return(rawValue);
+     }
+
+   bool consistent = (streak > 0) && (MathAbs(rawValue - pending) <= maxJump);
+   streak  = consistent ? (streak + 1) : 1;
+   pending = rawValue;
+
+   if(streak >= InpTickSpikeConfirmTicks)
+     {
+      if(InpEnableLog) PrintFormat("AjipIDM: %s jump %.5f confirmed over %d tick(s) — accepting %.5f (was %.5f).",
+                  label, jump, streak, rawValue, lastSane);
+      lastSane = rawValue;
+      streak   = 0;
+      return(rawValue);
+     }
+
+   if(InpEnableLog) PrintFormat("AjipIDM: %s tick REJECTED as spike — %.5f is %.5f away from last sane %.5f (streak %d/%d), holding.",
+               label, rawValue, jump, lastSane, streak, InpTickSpikeConfirmTicks);
+   return(lastSane);
+  }
+
+//==================================================================
+// REFRESH TICK SANITY — must be the FIRST thing OnTick does, before
+// UpdateMfeMae/CheckPartialClose/any close-all check reads price or PnL.
+// Computes this tick's sanitized Bid/Ask/floating-PnL exactly ONCE and
+// caches them in g_saneBid/g_saneAsk/g_saneFloatingPnl — every consumer
+// reads the cache rather than calling SanitizeReading itself, because
+// several of them (CheckPartialClose per tracked position, all the
+// close-all checks via GetFloatingPnL) would otherwise run it multiple
+// times per real tick, incrementing the confirm-streak on every CALL
+// instead of every actual tick and defeating InpTickSpikeConfirmTicks.
+//==================================================================
+void RefreshTickSanity()
+  {
+   double maxPriceJump = InpMaxTickJumpPoints * g_point;
+   g_saneBid = SanitizeReading(SymbolInfoDouble(_Symbol, SYMBOL_BID), g_saneBid, g_bidPending, g_bidRejectStreak, g_bidInit, maxPriceJump, "Bid");
+   g_saneAsk = SanitizeReading(SymbolInfoDouble(_Symbol, SYMBOL_ASK), g_saneAsk, g_askPending, g_askRejectStreak, g_askInit, maxPriceJump, "Ask");
+
+   double budget      = GetTightestMaxLossBudget();
+   double maxPnlJump  = (budget > 0.0) ? budget * (InpMaxPnlJumpPercent / 100.0) : 0.0; // no budget configured → guard inert
+   g_saneFloatingPnl  = SanitizeReading(GetRawFloatingPnL(), g_saneFloatingPnl, g_pnlPending, g_pnlRejectStreak, g_pnlInit, maxPnlJump, "Floating PnL");
   }
 
 //==================================================================

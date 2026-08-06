@@ -184,4 +184,30 @@ int            g_digits;
 double         g_point;
 double         g_volMin, g_volMax, g_volStep;
 
+// Tick sanity guard — see RefreshTickSanity (AjipIDM_Trade.mqh), called once
+// at the very top of OnTick before anything else reads price/PnL. A single
+// corrupt/spiked tick (bad feed data — has happened on this EA's live demo
+// account) can otherwise trigger CheckPartialClose or a close-all off a
+// price/PnL reading that never really existed. Every per-tick consumer
+// reads the sanitized g_saneBid/g_saneAsk/g_saneFloatingPnl below instead of
+// raw SymbolInfoDouble/GetRawFloatingPnL, so one fix point protects all of
+// them. Each quantity tracks: the last ACCEPTED reading (doubles as "this
+// tick's serving value" — see SanitizeReading), a pending candidate while a
+// jump is unconfirmed, a consecutive-rejection streak, and whether it's
+// been initialized yet (0.0 is a legitimate PnL reading, so "unset" can't
+// be inferred from the value alone the way it can for price).
+double         g_saneBid            = 0.0;
+double         g_saneAsk            = 0.0;
+double         g_bidPending         = 0.0;
+double         g_askPending         = 0.0;
+int            g_bidRejectStreak    = 0;
+int            g_askRejectStreak    = 0;
+bool           g_bidInit            = false;
+bool           g_askInit            = false;
+
+double         g_saneFloatingPnl    = 0.0;
+double         g_pnlPending         = 0.0;
+int            g_pnlRejectStreak    = 0;
+bool           g_pnlInit            = false;
+
 #endif // AJIPIDM_GLOBALS_MQH

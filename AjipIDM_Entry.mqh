@@ -271,10 +271,7 @@ void ApplyAggregateSLForDirection(int dir, double budget, double valuePerPointPe
 //==================================================================
 void RecalculateAggregateSL()
   {
-   double budget = -1.0;
-   if(InpBatchMaxLoss > 0.0) budget = InpBatchMaxLoss;
-   if(InpDailyMaxLoss > 0.0) budget = (budget < 0.0) ? InpDailyMaxLoss : MathMin(budget, InpDailyMaxLoss);
-   if(InpFinalMaxLoss > 0.0) budget = (budget < 0.0) ? InpFinalMaxLoss : MathMin(budget, InpFinalMaxLoss);
+   double budget = GetTightestMaxLossBudget(); // AjipIDM_Trade.mqh — shared with RefreshTickSanity's PnL guard
    if(budget <= 0.0) return; // nothing configured — no budget to distribute, no SL applied
 
    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
@@ -325,9 +322,10 @@ void CheckPartialClose()
       if(!PositionSelectByTicket(g_entries[i].ticket)) continue;
 
       double entryPrice = g_entries[i].entryPrice;
-      double curPrice   = (g_entries[i].dir == 1)
-                           ? SymbolInfoDouble(_Symbol, SYMBOL_BID)
-                           : SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      // Sanitized (spike-guarded) Bid/Ask — see RefreshTickSanity, AjipIDM_Trade.mqh.
+      // A single corrupt tick here is exactly what triggered a false partial
+      // close on a live demo account (139874 "points" of phantom profit).
+      double curPrice   = (g_entries[i].dir == 1) ? g_saneBid : g_saneAsk;
 
       double profitPoints = (g_entries[i].dir == 1)
                              ? (curPrice - entryPrice) / g_point
@@ -565,8 +563,11 @@ void CheckAggressiveIdmTouch()
    // mirror it here for reversals too.
    if(!g_idmConfirmed) return;
 
-   // Touch uses Bid — matches the Bid-based OHLC series g_idmPrice is derived from.
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   // Touch uses Bid — matches the Bid-based OHLC series g_idmPrice is derived
+   // from. Sanitized (spike-guarded), see RefreshTickSanity (AjipIDM_Trade.mqh)
+   // — this is a structural REVERSAL trigger, a false fire off a bad tick
+   // would corrupt g_trend/g_swings, not just close one position.
+   double bid = g_saneBid;
    bool touchBuy  = (g_trend == TREND_UP   && bid < g_idmPrice);
    bool touchSell = (g_trend == TREND_DOWN && bid > g_idmPrice);
    if(!touchBuy && !touchSell) return;
@@ -616,8 +617,9 @@ void CheckAggressiveZoneEntry()
    if(g_initMode) return;
    if(g_idmZoneEntryFiredTime == g_idmTime) return; // already entered for this idm level
 
-   // Touch uses Bid — same convention as CheckAggressiveIdmTouch.
-   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   // Touch uses Bid — same convention as CheckAggressiveIdmTouch. Sanitized
+   // (spike-guarded), see RefreshTickSanity (AjipIDM_Trade.mqh).
+   double bid = g_saneBid;
    bool touchBuy  = (g_trend == TREND_UP   && bid <= g_idmZonePrice);
    bool touchSell = (g_trend == TREND_DOWN && bid >= g_idmZonePrice);
    if(!touchBuy && !touchSell) return;
@@ -631,11 +633,12 @@ void CheckAggressiveZoneEntry()
    if(!InSession()) return;
    if(InNewsBlackout()) return;
 
-   MqlTick tick;
-   if(!SymbolInfoTick(_Symbol, tick)) return;
-
+   // Sanitized Ask/Bid — same cached reading the touch check above just used,
+   // not a fresh SymbolInfoTick call. Feeds HtfEntryAllowed's equilibrium
+   // math and OpenTrade's logged "Signal=" price; the actual order still gets
+   // its own fresh broker tick at execution (CTrade internals) either way.
    bool   isBuy         = touchBuy;
-   double entryEstimate = isBuy ? tick.ask : tick.bid;
+   double entryEstimate = isBuy ? g_saneAsk : g_saneBid;
 
    if(!HtfEntryAllowed(isBuy, entryEstimate)) return;
 
