@@ -30,8 +30,18 @@ ulong OpenTrade(bool isBuy, double entry)
    if(ok)
      {
       ulong ticket = trade.ResultOrder();
-      if(InpEnableLog) PrintFormat("AjipIDM: %s opened. Ticket=%I64u, Lot=%.2f, Entry=%.5f, SL=NONE, TP=NONE",
-                  isBuy ? "BUY" : "SELL", ticket, lot, entry);
+      // Log the ACTUAL fill (POSITION_PRICE_OPEN), not just the caller's
+      // intended `entry` (bar.close or an aggressive-touch estimate) — the
+      // two can differ (spread, slippage, or a bad tick at execution time),
+      // and AddEntry's tracked entryPrice always uses the real fill. Logging
+      // the intended price alone made a past incident (real fill nowhere
+      // near bar.close, from a single spiked tick) look like a math error
+      // in later analysis instead of the actual fill discrepancy it was.
+      double fillPrice = entry;
+      if(PositionSelectByTicket(ticket))
+         fillPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      if(InpEnableLog) PrintFormat("AjipIDM: %s opened. Ticket=%I64u, Lot=%.2f, Signal=%.5f, Fill=%.5f, SL=NONE, TP=NONE",
+                  isBuy ? "BUY" : "SELL", ticket, lot, entry, fillPrice);
       return(ticket);
      }
 

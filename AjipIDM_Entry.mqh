@@ -197,8 +197,15 @@ void ApplyAggregateSLForDirection(int dir, double budget, double valuePerPointPe
    for(int i = 0; i < n; i++)
      {
       if(g_entries[i].dir != dir) continue;
-      if(g_entries[i].partialClosed) continue;
       if(!PositionSelectByTicket(g_entries[i].ticket)) continue;
+      // partialClosed only means the VOLUME SPLIT succeeded — CheckPartialClose
+      // sets it before attempting the breakeven PositionModify, so a broker
+      // rejection on THAT step (bad tick reverting before the modify lands,
+      // invalid stops, etc.) leaves partialClosed=true with SL still at 0.
+      // Skip only positions that actually HAVE a protective stop right now;
+      // anything still at 0 stays eligible for the budget-derived SL below,
+      // regardless of how partialClosed reads.
+      if(g_entries[i].partialClosed && PositionGetDouble(POSITION_SL) != 0.0) continue;
       totalVolume += PositionGetDouble(POSITION_VOLUME);
      }
    if(totalVolume <= 0.0) return;
@@ -209,8 +216,8 @@ void ApplyAggregateSLForDirection(int dir, double budget, double valuePerPointPe
    for(int i = 0; i < n; i++)
      {
       if(g_entries[i].dir != dir) continue;
-      if(g_entries[i].partialClosed) continue;
       if(!PositionSelectByTicket(g_entries[i].ticket)) continue;
+      if(g_entries[i].partialClosed && PositionGetDouble(POSITION_SL) != 0.0) continue;
 
       double entryPrice = g_entries[i].entryPrice;
       double newSl = (dir == 1)
