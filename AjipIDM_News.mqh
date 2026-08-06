@@ -2,18 +2,23 @@
 #define AJIPIDM_NEWS_MQH
 
 //==================================================================
-// NEWS BLACKOUT — blocks new entries around high-impact economic
-// calendar events matching this symbol's base/profit currency (e.g.
-// XAUUSD checks XAU + USD events). Uses MT5's built-in Calendar API,
+// NEWS BLACKOUT — blocks new entries AND every profit-taking close (partial
+// close, final/daily/batch TARGET, session profit-lock) around high-impact
+// economic calendar events matching this symbol's base/profit currency
+// (e.g. XAUUSD checks XAU + USD events). Uses MT5's built-in Calendar API,
 // which relies on the terminal's own calendar cache — if it's
 // unavailable (e.g. Strategy Tester without cached data), the query
 // simply returns no events and this stays non-blocking, same fallback
 // as the session filter on unparseable input.
 // Result is cached for NEWS_CACHE_SECONDS so it isn't recomputed every
 // tick — the blackout window is minutes wide, a short cache lag is
-// immaterial. Only used to gate new entries (CheckIdmZoneEntry/
-// CheckAggressiveZoneEntry, AjipIDM_Entry.mqh); does not close existing
-// positions.
+// immaterial.
+// Deliberately NEVER gates the max-loss kill switches (FinalMaxLossReached/
+// CheckFinalMaxLossCloseAll, the MAXLOSS_HIT branch of CheckDailyCloseAll/
+// CheckBatchCloseAll) — those protect the account and are needed most
+// exactly when volatility (like a news spike) is highest. Prop-firm news
+// rules are about not profiting FROM the event, not about being unable to
+// cut a loss during it.
 //==================================================================
 bool InNewsBlackout()
   {

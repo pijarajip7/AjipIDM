@@ -196,6 +196,7 @@ bool FinalTargetReached()
 void CheckFinalTargetCloseAll()
   {
    if(!FinalTargetReached()) return;
+   if(InNewsBlackout()) return; // profit-side — CheckFinalMaxLossCloseAll (the kill switch) stays active regardless
 
    static datetime lastLog = 0;
    datetime today = StringToTime(TimeToString(TimeCurrent(), TIME_DATE));
@@ -515,6 +516,7 @@ void CheckSessionCloseAll()
   {
    if(!g_sessionFilterEnabled) return;
    if(InSession()) return;
+   if(InNewsBlackout()) return; // profit-lock only (total<=0 never closes here) — pause during news like other profit-side actions
 
    double total = GetDailyPnL() + GetFloatingPnL();
    if(total <= 0.0) return;
@@ -542,6 +544,12 @@ void CheckBatchCloseAll()
 
    if(status == LIMIT_STATUS_TARGET_HIT)
      {
+      // Profit side only — see CheckDailyCloseAll for why gating just this
+      // branch on InNewsBlackout() is safe: MAXLOSS_HIT below (the kill
+      // switch) is mutually exclusive with TARGET_HIT and stays active
+      // regardless of news.
+      if(InNewsBlackout()) return;
+
       if(InpEnableLog) PrintFormat("AjipIDM: Batch TARGET reached (%.2f >= %.2f) — closing current batch.",
                   total, InpBatchMaxProfit);
       CloseAllAndFlushBatch("BATCH_TARGET");

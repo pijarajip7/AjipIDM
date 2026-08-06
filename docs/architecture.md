@@ -310,10 +310,19 @@ gap, atau slippage pada close-all itu sendiri.
 
 ## News Blackout
 
-`InNewsBlackout()` (`AjipIDM_News.mqh`) — gate entry, TIDAK menutup posisi yang
-sudah terbuka. Memakai Calendar API bawaan MT5, mencocokkan event dengan base +
-profit currency simbol (XAUUSD → cek XAU dan USD). Window: `now -
-InpNewsMinutesAfter` sampai `now + InpNewsMinutesBefore`.
+`InNewsBlackout()` (`AjipIDM_News.mqh`) — bukan cuma gate entry, digerbangkan juga
+di setiap aksi close yang sifatnya profit-taking: `CheckPartialClose`,
+`CheckFinalTargetCloseAll`, `CheckSessionCloseAll`, dan cabang `TARGET_HIT` di
+`CheckDailyCloseAll`/`CheckBatchCloseAll` (dua fungsi ini menangani profit DAN
+loss dalam satu body via `ClassifyLimitStatus` — gate-nya cuma di cabang profit,
+bukan di seluruh fungsi). Kill switch max-loss (`CheckFinalMaxLossCloseAll`,
+cabang `MAXLOSS_HIT` di Daily/Batch) **sengaja TIDAK PERNAH digerbangkan** —
+lihat rasional lengkapnya di [News Blackout](concept.md#news-blackout-gate-entry--profit-side-exit)
+di concept.md.
+
+Memakai Calendar API bawaan MT5, mencocokkan event dengan base + profit
+currency simbol (XAUUSD → cek XAU dan USD). Window: `now - InpNewsMinutesAfter`
+sampai `now + InpNewsMinutesBefore`.
 
 Hasilnya di-cache 15 detik supaya tidak dihitung ulang tiap tick — window
 blackout lebarnya menit, lag cache beberapa detik tidak material. Kalau kalender

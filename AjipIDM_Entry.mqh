@@ -310,10 +310,15 @@ void UpdateMfeMae()
 // remainder's SL to breakeven (entryPrice), and mark it done — the remainder
 // then rides at BE until the daily close-all (or gets stopped out at entry).
 // Called every tick, same cadence as UpdateMfeMae.
+//
+// Gated on InNewsBlackout() — this locks in profit, so it's paused during
+// the news window like every other profit-side action (see AjipIDM_News.mqh).
+// Deliberately NOT gated on session/daily-limit — those aren't news-related.
 //==================================================================
 void CheckPartialClose()
   {
    if(InpPartialClosePoints <= 0) return;
+   if(InNewsBlackout()) return;
 
    int n = ArraySize(g_entries);
    for(int i = 0; i < n; i++)
@@ -407,6 +412,12 @@ void CheckDailyCloseAll()
 
    if(status == LIMIT_STATUS_TARGET_HIT)
      {
+      // Profit side only — paused during news like every other profit-taking
+      // action. LIMIT_STATUS_MAXLOSS_HIT below is the kill switch and stays
+      // active regardless; the two are mutually exclusive so returning here
+      // never skips a loss check that would otherwise have fired this tick.
+      if(InNewsBlackout()) return;
+
       if(InpEnableLog) PrintFormat("AjipIDM: Daily TARGET reached (%.2f >= %.2f) — closing all positions.",
                   total, InpDailyMaxProfit);
       CloseAllAndFlushBatch("DAILY_TARGET");

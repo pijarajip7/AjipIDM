@@ -254,7 +254,7 @@ Kalau !InSession() DAN total (realized+floating, SAMA formula dengan
 ```
 Ini yang menjawab kasus "PnL belum mencapai `InpDailyMaxProfit` tapi udah positif waktu jam tutup" — begitu keluar dari jendela sesi dan total masih positif (berapa pun besarnya, tidak perlu sampai `InpDailyMaxProfit`), semua posisi ditutup supaya profit tidak "dibalikin" di luar jam trading. Kalau PnL negatif saat itu, posisi TIDAK dipaksa tutup — tetap jalan (nunggu balik positif, kena `InpDailyMaxLoss`, atau ditutup manual).
 
-## News Blackout (Gate Entry)
+## News Blackout (Gate Entry + Profit-Side Exit)
 
 `InpNewsFilterEnabled` (default aktif) memblokir entry baru di sekitar rilis kalender high-impact yang menyangkut mata uang simbol ini — XAUUSD mengecek event XAU **dan** USD.
 
@@ -263,7 +263,20 @@ Window blokir: [now - InpNewsMinutesAfter, now + InpNewsMinutesBefore]
 Importance minimum: InpNewsMinImportance (default CALENDAR_IMPORTANCE_HIGH)
 ```
 
-Hanya gate entry — **posisi yang sudah terbuka tidak ditutup**. Kalau kalender MT5 tidak tersedia (mis. Strategy Tester tanpa data ter-cache), filter ini otomatis non-blocking, bukan memblokir semuanya. Detail cache & implementasi: [News Blackout](architecture.md#news-blackout).
+**Bukan cuma gate entry** — semua aksi yang sifatnya profit-taking ikut dijeda selama window blackout:
+
+| Digerbangi (dijeda saat news) | TETAP aktif tanpa syarat |
+|---|---|
+| `CheckAggressiveZoneEntry` / `CheckIdmZoneEntry` (entry baru) | `CheckFinalMaxLossCloseAll` |
+| `CheckPartialClose` | `CheckDailyCloseAll` sisi `MAXLOSS_HIT` |
+| `CheckFinalTargetCloseAll` | `CheckBatchCloseAll` sisi `MAXLOSS_HIT` |
+| `CheckDailyCloseAll` sisi `TARGET_HIT` | |
+| `CheckBatchCloseAll` sisi `TARGET_HIT` | |
+| `CheckSessionCloseAll` (profit-lock, tidak pernah trigger saat rugi) | |
+
+**Sengaja tidak simetris.** Kill switch max-loss (Final/Daily/Batch) TIDAK PERNAH ikut dijeda — itu sirkuit proteksi akun, justru paling dibutuhkan saat volatilitas tinggi (persis kondisi di sekitar news). Aturan prop firm soal news biasanya melarang *memanfaatkan* pergerakan news (entry baru, atau realisasi profit dari lonjakan harga) — bukan melarang EA menyelamatkan akun dari kerugian yang membesar. Menjeda max-loss saat news justru menambah risiko di momen paling berbahaya untuk terjebak tanpa proteksi.
+
+Kalau kalender MT5 tidak tersedia (mis. Strategy Tester tanpa data ter-cache), filter ini otomatis non-blocking, bukan memblokir semuanya. Detail cache & implementasi: [News Blackout](architecture.md#news-blackout).
 
 ## Batch Cooldown
 
