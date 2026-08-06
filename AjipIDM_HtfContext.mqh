@@ -721,16 +721,37 @@ bool HtfPrevSwingBodyBroken(bool isHigh)
    ArraySetAsSeries(legBars, false); // chronological (oldest→newest) — walk the leg forward
    if(CopyRates(_Symbol, InpHtfTimeframe, curShift, count, legBars) <= 0) return true;
 
+   // Diagnostic: idxPrev/idxCur are the swings actually compared — printed so
+   // a discrepancy against what's visually adjacent on the HTF chart (e.g.
+   // from an intermediate swing erased by the premature-pop in
+   // HtfBuildSimpleStructure) is immediately visible, instead of having to
+   // infer it from g_htfSwings state that no longer exists by the time
+   // anyone looks.
+   string swingType = isHigh ? "SH" : "SL";
+
    for(int i = 0; i < ArraySize(legBars); i++)
      {
       bool brokeNow = isHigh ? (legBars[i].close > watchLevel) : (legBars[i].close < watchLevel);
-      if(brokeNow) return true;
+      if(brokeNow)
+        {
+         if(InpEnableLog) PrintFormat("AjipIDM: HTF %s body-break check BROKEN — prev=%.5f@%s cur=%.5f@%s, "
+                     "broken by bar %s close=%.5f vs watchLevel=%.5f",
+                     swingType, g_htfSwings[idxPrev].price, TimeToString(g_htfSwings[idxPrev].time),
+                     g_htfSwings[idxCur].price, TimeToString(g_htfSwings[idxCur].time),
+                     TimeToString(legBars[i].time), legBars[i].close, watchLevel);
+         return true;
+        }
 
       // No break yet — deepen the watch level if this bar's own wick pushed further.
       if(isHigh  && legBars[i].high > watchLevel) watchLevel = legBars[i].high;
       if(!isHigh && legBars[i].low  < watchLevel) watchLevel = legBars[i].low;
      }
 
+   if(InpEnableLog) PrintFormat("AjipIDM: HTF %s body-break check NOT BROKEN (swept only) — prev=%.5f@%s cur=%.5f@%s, "
+               "deepest watchLevel=%.5f, %d bar(s) scanned",
+               swingType, g_htfSwings[idxPrev].price, TimeToString(g_htfSwings[idxPrev].time),
+               g_htfSwings[idxCur].price, TimeToString(g_htfSwings[idxCur].time),
+               watchLevel, ArraySize(legBars));
    return false; // only ever wicked further — never closed back beyond the deepest sweep
   }
 

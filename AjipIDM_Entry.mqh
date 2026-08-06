@@ -478,9 +478,11 @@ bool HtfEntryAllowed(bool isBuy, double entryPrice)
       return false;
      }
 
+   // HtfPrevSwingBodyBroken logs its own verdict (prev/cur swing + watchLevel
+   // detail) on both outcomes — no need to duplicate a generic line here.
    if(!HtfPrevSwingBodyBroken(isBuy))
      {
-      if(InpEnableLog) PrintFormat("AjipIDM: %s skip — HTF previous %s only swept, not body-broken",
+      if(InpEnableLog) PrintFormat("AjipIDM: %s skip — HTF previous %s only swept, not body-broken (see check above)",
                   dirLabel, isBuy ? "SH" : "SL");
       return false;
      }
