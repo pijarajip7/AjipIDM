@@ -7,7 +7,7 @@
 //|  No SL at entry either, but an aggregate SL (RecalculateAggregateSL,|
 //|  AjipIDM_Entry.mqh) is applied every tick from the smallest of   |
 //|  batch/daily/final max loss. One-time partial close at           |
-//|  InpPartialClosePoints moves SL to breakeven on the rest, which  |
+//|  InpPartialCloseProfit moves SL to breakeven on the rest, which  |
 //|  then rides until daily/final target/max loss closes ALL positions.|
 //|  Running-max swing detection from 50 candles init.               |
 //+------------------------------------------------------------------+
@@ -56,7 +56,7 @@ input double InpBatchMaxLoss         = 0.0;   // Batch max loss — close curren
 input int    InpBatchCooldownMinutes = 11;     // Minutes to wait after a batch goes flat before a new one can start (0=disabled, next entry allowed immediately)
 
 input group "Partial Close"
-input int    InpPartialClosePoints  = 500;   // Points profit to trigger one-time partial close (0=disabled)
+input double InpPartialCloseProfit  = 10.0;  // Floating profit in ACCOUNT CURRENCY ($) to trigger one-time partial close (0=disabled)
 input double InpPartialClosePercent = 50.0;  // % of position volume to close at partial-close threshold
 
 input group "Session Filter"

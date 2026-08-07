@@ -353,9 +353,9 @@ void UpdateMfeMae()
 
 //==================================================================
 // CHECK PARTIAL CLOSE — one-time per position. Once a tracked position's
-// floating profit reaches InpPartialClosePoints (price distance in points,
-// favorable direction), close InpPartialClosePercent of its volume, move the
-// remainder's SL to breakeven (entryPrice), and mark it done — the remainder
+// floating profit reaches InpPartialCloseProfit (ACCOUNT CURRENCY, straight
+// from POSITION_PROFIT), close InpPartialClosePercent of its volume, move the
+// remainder's SL to breakeven (open price), and mark it done — the remainder
 // then rides at BE until the daily close-all (or gets stopped out at entry).
 // Called every tick, same cadence as UpdateMfeMae.
 //
@@ -363,21 +363,19 @@ void UpdateMfeMae()
 // the news window like every other profit-side action (see AjipIDM_News.mqh).
 // Deliberately NOT gated on session/daily-limit — those aren't news-related.
 //
-// Every input to the decision is read from the SELECTED POSITION, never from
-// the g_entries cache. The arithmetic below is direction-symmetric, so a
-// direction-asymmetric misfire ("every SELL splits the moment it opens, no BUY
-// ever splits") can only come from a bad entryPrice: one that sits far ABOVE
-// the market makes (entry - ask) large for every SELL and (bid - entry)
-// permanently negative for every BUY — both symptoms, one cause. The cached
-// copy is exactly where that can go wrong (see AddEntry); POSITION_PRICE_OPEN
-// cannot. Same for direction: POSITION_TYPE is authoritative, and the cached
-// dir defaulting to the SELL branch of a ternary would make any corrupt entry
-// misread as a sell.
+// The trigger is money, not points, deliberately. The points version computed
+// the distance itself from a cached quote, and that quote is exactly what went
+// wrong live: a stale Ask made every SELL read +133530 points on a position
+// the broker showed at -6.83, so every sell got split the moment it opened
+// while no buy ever did. POSITION_PROFIT is one number the BROKER computes
+// from its own current price — no local price math, no bid/ask cache, no point
+// scale, nothing left in this decision that a bad quote can poison. Note that
+// it is volume-dependent by nature ($10 on 0.02 lots is a different move than
+// $10 on 0.10) and excludes swap/commission.
 //==================================================================
 void CheckPartialClose()
   {
-   if(InpPartialClosePoints <= 0) return;
-   if(g_point <= 0.0) return; // no symbol point cached — every points figure below would be inf/nan
+   if(InpPartialCloseProfit <= 0.0) return;
    if(InNewsBlackout()) return;
 
    int n = ArraySize(g_entries);
@@ -386,47 +384,9 @@ void CheckPartialClose()
       if(g_entries[i].partialClosed) continue;
       if(!PositionSelectByTicket(g_entries[i].ticket)) continue;
 
-      bool   isBuy      = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
-      double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-      double posProfit  = PositionGetDouble(POSITION_PROFIT);
-      // Sanitized (spike-guarded) Bid/Ask — see RefreshTickSanity, AjipIDM_Trade.mqh.
-      // A single corrupt tick here is exactly what triggered a false partial
-      // close on a live demo account (139874 "points" of phantom profit).
-      double curPrice   = isBuy ? g_saneBid : g_saneAsk;
-
-      if(entryPrice <= 0.0 || curPrice <= 0.0)
-        {
-         if(InpEnableLog) PrintFormat("AjipIDM: Partial close skip — ticket=%I64u unusable price (entry=%.5f cur=%.5f).",
-                     g_entries[i].ticket, entryPrice, curPrice);
-         continue;
-        }
-
-      // Tracking disagreeing with the broker means g_entries is describing a
-      // different trade than the one about to be split — worth seeing in the
-      // log even though nothing below depends on the cached value anymore.
-      if(InpEnableLog && g_entries[i].dir != (isBuy ? 1 : -1))
-         PrintFormat("AjipIDM: Tracked dir mismatch — ticket=%I64u tracked=%d broker=%s (using broker).",
-                     g_entries[i].ticket, g_entries[i].dir, isBuy ? "BUY" : "SELL");
-
-      double profitPoints = isBuy
-                             ? (curPrice - entryPrice) / g_point
-                             : (entryPrice - curPrice) / g_point;
-
-      if(profitPoints < InpPartialClosePoints) continue;
-
-      // Last veto: the broker's own floating P/L has to agree the position is
-      // actually in profit. Both figures use the same open price and the same
-      // closing side of the spread, so a genuine +InpPartialClosePoints is
-      // always > 0 here; a disagreement means the reading is wrong, not the
-      // market. Costs nothing when they agree, and when they don't it stops a
-      // profit-take on a position that never moved. Skipping (not marking
-      // done) leaves it to retry next tick, same as a broker rejection.
-      if(posProfit <= 0.0)
-        {
-         if(InpEnableLog) PrintFormat("AjipIDM: Partial close VETOED — ticket=%I64u reads +%.0f pts (entry=%.5f cur=%.5f) but broker P/L is %.2f. Skipping.",
-                     g_entries[i].ticket, profitPoints, entryPrice, curPrice, posProfit);
-         continue;
-        }
+      bool   isBuy     = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY); // for the log only
+      double posProfit = PositionGetDouble(POSITION_PROFIT);
+      if(posProfit < InpPartialCloseProfit) continue;
 
       double posVolume   = PositionGetDouble(POSITION_VOLUME);
       double closeVolume = posVolume * (InpPartialClosePercent / 100.0);
@@ -456,10 +416,10 @@ void CheckPartialClose()
 
       g_entries[i].partialClosed = true; // now genuinely done — the split succeeded
 
-      // Prices in the log too, not just the points figure — a wrong split is
-      // only diagnosable after the fact if the reading behind it is on record.
-      if(InpEnableLog) PrintFormat("AjipIDM: Partial close done. Ticket=%I64u %s closed=%.2f remaining=%.2f (+%.0f pts: entry=%.5f cur=%.5f, broker P/L=%.2f)",
-                  g_entries[i].ticket, isBuy ? "BUY" : "SELL", closeVolume, remainder, profitPoints, entryPrice, curPrice, posProfit);
+      // The reading behind the split goes in the log: side, both volumes, and
+      // the P/L that crossed the threshold.
+      if(InpEnableLog) PrintFormat("AjipIDM: Partial close done. Ticket=%I64u %s closed=%.2f remaining=%.2f (broker P/L %.2f >= %.2f)",
+                  g_entries[i].ticket, isBuy ? "BUY" : "SELL", closeVolume, remainder, posProfit, InpPartialCloseProfit);
 
       // Move the remainder's SL to breakeven — closeVolume changed the
       // ticket's volume but not its SL/TP, so this still needs an explicit
@@ -467,7 +427,18 @@ void CheckPartialClose()
       if(!PositionSelectByTicket(g_entries[i].ticket))
          continue; // fully closed already (e.g. broker rounded remainder away)
 
-      double beSl = NormalizeDouble(entryPrice, g_digits);
+      // The one price this function still needs, and it comes from the position
+      // itself — read here, after the re-select, so it can't be a value cached
+      // from some earlier tick. The split already happened either way; a
+      // missing open price costs the BE stop, not the profit taken.
+      double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+      if(openPrice <= 0.0)
+        {
+         if(InpEnableLog) PrintFormat("AjipIDM: Breakeven SL SKIPPED — ticket=%I64u has no readable open price.", g_entries[i].ticket);
+         continue;
+        }
+
+      double beSl = NormalizeDouble(openPrice, g_digits);
       if(trade.PositionModify(g_entries[i].ticket, beSl, PositionGetDouble(POSITION_TP)))
         {
          if(InpEnableLog)

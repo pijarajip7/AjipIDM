@@ -47,7 +47,7 @@ InpBatchCooldownMinutes = 11    — Jeda setelah batch flat sebelum batch baru b
 
 **Partial Close**
 ```
-InpPartialClosePoints  = 500   — Points profit untuk trigger one-time partial close (0=disabled)
+InpPartialCloseProfit  = 10.0  — Floating profit ($, POSITION_PROFIT) untuk trigger one-time partial close (0=disabled)
 InpPartialClosePercent = 50.0  — % volume yang ditutup di threshold partial close
 ```
 
@@ -155,7 +155,7 @@ Append 1 baris ke `MQL5/Files/AjipIDM_Batches_<symbol>_<magic>.csv` (dibuat otom
 
 Catatan:
 - **PENTING**: kalau `InpDailyMaxProfit`/`InpDailyMaxLoss`/`InpBatchMaxProfit`/`InpBatchMaxLoss` SEMUA 0 DAN session filter nonaktif (`InpSessionStart`==`InpSessionEnd`), tidak ada apa pun yang pernah memicu `CloseAllAndFlushBatch` → CSV batch TIDAK PERNAH ditulis, walaupun posisi terus buka/tutup (breakeven stop, dll). Aktifkan minimal salah satu supaya history ke-log.
-- Partial close (`InpPartialClosePoints`) TIDAK menutup posisi sepenuhnya — ticket tetap ada, jadi tidak memicu akumulasi. Posisi baru dihitung sekali batch (win/loss/BE) saat BENAR-BENAR closed (volume habis).
+- Partial close (`InpPartialCloseProfit`) TIDAK menutup posisi sepenuhnya — ticket tetap ada, jadi tidak memicu akumulasi. Posisi baru dihitung sekali batch (win/loss/BE) saat BENAR-BENAR closed (volume habis).
 - Di Strategy Tester, file CSV ada di folder sandbox agent tester (`Tester/Agent-xxx/MQL5/Files/`), bukan folder terminal utama — kalau run optimization paralel, tiap agent punya file sendiri (tidak digabung otomatis).
 - Detail per-ticket (entry price, exit price/time individual) sudah tidak ada lagi di CSV — kalau butuh itu, cek log `Print`/`PrintFormat` EA (tab Experts) atau `HistoryDealsTotal` manual di Strategy Tester.
 
@@ -235,7 +235,7 @@ Karena batch limit TIDAK ngeblok entry, dalam SATU hari kalender bisa ada LEBIH 
   lewat jalur normalnya, arah baru menunggu. Diperlukan untuk prop firm yang
   memasukkan hedging sebagai forbidden strategy.
 - Partial close + breakeven SL: one-time per posisi, tiap tick via
-  `CheckPartialClose` — begitu floating profit posisi >= `InpPartialClosePoints`,
+  `CheckPartialClose` — begitu `POSITION_PROFIT` posisi >= `InpPartialCloseProfit` ($),
   tutup `InpPartialClosePercent` dari volumenya (`PositionClosePartial`), lalu
   `PositionModify` SL sisa posisi ke `entryPrice` (breakeven, TP tetap 0).
   Di-skip (termasuk BE SL-nya) kalau closeVolume atau remainder di bawah

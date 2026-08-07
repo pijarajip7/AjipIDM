@@ -11,7 +11,7 @@ AjipIDM berbeda dari AjipSMC dalam hal:
 | Entry direction | Trend-following (menuju Weak) | Counter-trend (sweep/fakeout) |
 | Target | Weak VL/VH | Swing terakhir di struktur baru (equilibrium reference saja, bukan TP order) |
 | RR | 1:2 minimum | Tidak ada — fixed lot (`InpFixedLot`), tanpa TP/SL |
-| SL | Hybrid structural + ATR | Tidak ada — exit via partial close (`InpPartialClosePoints`) + daily close-all |
+| SL | Hybrid structural + ATR | Tidak ada — exit via partial close (`InpPartialCloseProfit`) + daily close-all |
 | Platform | Python + TradingView | MT5 EA (MQL5) |
 
 ## Naming Convention
@@ -177,9 +177,10 @@ Varian ini tidak lagi menghitung lot dari target profit maupun SL dari RR:
 
 `CheckPartialClose` (`AjipIDM_Entry.mqh`), jalan tiap tick untuk setiap posisi yang ditrack:
 ```
-profitPoints = (dir BUY: Bid - entryPrice) atau (dir SELL: entryPrice - Ask), dalam points
+posProfit = PositionGetDouble(POSITION_PROFIT) — floating P/L dalam mata uang akun,
+            dihitung broker, bukan dari harga bid/ask lokal
 
-Kalau profitPoints >= InpPartialClosePoints DAN belum pernah partial-close:
+Kalau posProfit >= InpPartialCloseProfit DAN belum pernah partial-close:
   closeVolume = posVolume * (InpPartialClosePercent / 100), dibulatkan ke volume step
   Kalau closeVolume atau remainder < g_volMin → skip (terlalu kecil buat displit)
   Sebaliknya:
@@ -328,7 +329,7 @@ Contoh ini mengilustrasikan siklus reversal + ENTRY DECISION di LTF (kapan/arah 
    Equilibrium HTF dicek via HtfEntryAllowed (struktur HTF saat itu) — kalau
    lolos, BUY @ 109, lot = InpFixedLot, tanpa SL/TP.
 
-4. Posisi jalan tanpa TP/SL — di +InpPartialClosePoints, partial close sekali
+4. Posisi jalan tanpa TP/SL — di +InpPartialCloseProfit ($), partial close sekali
    (InpPartialClosePercent dari volume) lalu SL sisanya dipindah ke breakeven
    (109). Sisa posisi ditutup saat kena BE atau daily target/max loss
    tercapai (CheckDailyCloseAll).
