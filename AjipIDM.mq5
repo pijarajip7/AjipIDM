@@ -37,7 +37,7 @@ input ulong  InpDeviation    = 10;     // Slippage (points)
 input long   InpMagicNumber  = 99001;  // Magic number
 
 input group "Tick Sanity Guard"
-input double InpMaxTickJumpPoints     = 3000;  // Max plausible Bid/Ask move in ONE tick (points) before it's held as a suspected spike (0=disabled)
+input double InpMaxTickJumpPoints     = 3000;  // Max plausible Bid/Ask move in ONE tick, in POINTS not price (3-digit XAUUSD: 3000 = $3.00). Set it too tight and ordinary ticks get held (0=disabled)
 input double InpMaxPnlJumpPercent     = 25.0;  // Max plausible floating PnL move in ONE tick, as % of the tightest configured max-loss budget (0=disabled, or no max-loss budget set)
 input int    InpTickSpikeConfirmTicks = 2;     // Consecutive ticks a rejected jump must persist before it's accepted as a real move
 

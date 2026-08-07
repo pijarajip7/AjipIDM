@@ -196,18 +196,34 @@ double         g_volMin, g_volMax, g_volStep;
 // jump is unconfirmed, a consecutive-rejection streak, and whether it's
 // been initialized yet (0.0 is a legitimate PnL reading, so "unset" can't
 // be inferred from the value alone the way it can for price).
+// consecutive-hold counters + MAX_CONSECUTIVE_HOLDS: a hard ceiling on how
+// long a held value may be served. Without it the guard can fossilize — its
+// only way out of a hold is two CONSECUTIVE raw readings landing within
+// maxJump of each other, so any symbol whose normal tick-to-tick movement
+// exceeds maxJump (e.g. 3-digit XAUUSD, where the 3000-point default is only
+// $3.00) never confirms, and lastSane freezes at whatever it held when the
+// market first outran the threshold. That fossil then feeds EVERY consumer:
+// a stale Bid drives structure touches and entry prices, a stale Ask made
+// every SELL read as instantly +133530 points of profit. Ten ticks is far
+// beyond the single-tick spike this guard exists for; past that, the market
+// is right and the guard is wrong.
+const int      MAX_CONSECUTIVE_HOLDS = 10;
+
 double         g_saneBid            = 0.0;
 double         g_saneAsk            = 0.0;
 double         g_bidPending         = 0.0;
 double         g_askPending         = 0.0;
 int            g_bidRejectStreak    = 0;
 int            g_askRejectStreak    = 0;
+int            g_bidHoldCount       = 0;
+int            g_askHoldCount       = 0;
 bool           g_bidInit            = false;
 bool           g_askInit            = false;
 
 double         g_saneFloatingPnl    = 0.0;
 double         g_pnlPending         = 0.0;
 int            g_pnlRejectStreak    = 0;
+int            g_pnlHoldCount       = 0;
 bool           g_pnlInit            = false;
 
 #endif // AJIPIDM_GLOBALS_MQH

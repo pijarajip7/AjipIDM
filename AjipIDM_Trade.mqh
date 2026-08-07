@@ -386,20 +386,32 @@ double GetTightestMaxLossBudget()
 // unless it's the InpTickSpikeConfirmTicks-th CONSECUTIVE tick landing
 // within maxJump of the PREVIOUS rejected reading — not just of the old
 // baseline, so two unrelated single-tick outliers can't confirm each other
-// into a false "real move". This can never get permanently stuck: any jump
-// that actually persists gets accepted within InpTickSpikeConfirmTicks
-// ticks, so a genuine fast market never gets silently ignored.
+// into a false "real move".
+//
+// That confirm rule alone is NOT enough to guarantee the hold ever ends, and
+// an earlier version of this comment wrongly claimed it was. Escaping a hold
+// needs two CONSECUTIVE raw readings within maxJump OF EACH OTHER, so on any
+// symbol whose ordinary tick-to-tick movement already exceeds maxJump the
+// streak resets to 1 forever and lastSane fossilizes — permanently, silently,
+// and for every consumer at once. Seen live on 3-digit XAUUSD, where the
+// 3000-point default is only $3.00: the served Ask sat $133 below the real
+// market indefinitely, which made the structure engine read stale touches and
+// made every SELL look like +133530 points of instant profit. Hence `holds`:
+// after MAX_CONSECUTIVE_HOLDS consecutive rejections the raw reading is taken
+// regardless. Ten ticks is well past the single-tick spike this guard is for,
+// and a stale price is more dangerous than a fast one.
 //==================================================================
 double SanitizeReading(double rawValue, double &lastSane, double &pending, int &streak,
-                        bool &initialized, double maxJump, string label)
+                        int &holds, bool &initialized, double maxJump, string label)
   {
-   if(maxJump <= 0.0) { lastSane = rawValue; initialized = true; streak = 0; return(rawValue); }
+   if(maxJump <= 0.0) { lastSane = rawValue; initialized = true; streak = 0; holds = 0; return(rawValue); }
 
    if(!initialized)
      {
       lastSane    = rawValue;
       initialized = true;
       streak      = 0;
+      holds       = 0;
       return(rawValue);
      }
 
@@ -408,12 +420,14 @@ double SanitizeReading(double rawValue, double &lastSane, double &pending, int &
      {
       lastSane = rawValue;
       streak   = 0;
+      holds    = 0;
       return(rawValue);
      }
 
    bool consistent = (streak > 0) && (MathAbs(rawValue - pending) <= maxJump);
    streak  = consistent ? (streak + 1) : 1;
    pending = rawValue;
+   holds++;
 
    if(streak >= InpTickSpikeConfirmTicks)
      {
@@ -421,11 +435,25 @@ double SanitizeReading(double rawValue, double &lastSane, double &pending, int &
                   label, jump, streak, rawValue, lastSane);
       lastSane = rawValue;
       streak   = 0;
+      holds    = 0;
       return(rawValue);
      }
 
-   if(InpEnableLog) PrintFormat("AjipIDM: %s tick REJECTED as spike — %.5f is %.5f away from last sane %.5f (streak %d/%d), holding.",
-               label, rawValue, jump, lastSane, streak, InpTickSpikeConfirmTicks);
+   // Staleness ceiling. Loud on purpose: reaching it means maxJump is too
+   // tight for this symbol (raise InpMaxTickJumpPoints), and everything the
+   // EA decided while the hold lasted was based on the held value.
+   if(holds >= MAX_CONSECUTIVE_HOLDS)
+     {
+      if(InpEnableLog) PrintFormat("AjipIDM: %s held for %d consecutive ticks — FORCING acceptance of %.5f (was %.5f, maxJump %.5f). Threshold is too tight for this symbol.",
+                  label, holds, rawValue, lastSane, maxJump);
+      lastSane = rawValue;
+      streak   = 0;
+      holds    = 0;
+      return(rawValue);
+     }
+
+   if(InpEnableLog) PrintFormat("AjipIDM: %s tick REJECTED as spike — %.5f is %.5f away from last sane %.5f (streak %d/%d, hold %d/%d), holding.",
+               label, rawValue, jump, lastSane, streak, InpTickSpikeConfirmTicks, holds, MAX_CONSECUTIVE_HOLDS);
    return(lastSane);
   }
 
@@ -443,12 +471,12 @@ double SanitizeReading(double rawValue, double &lastSane, double &pending, int &
 void RefreshTickSanity()
   {
    double maxPriceJump = InpMaxTickJumpPoints * g_point;
-   g_saneBid = SanitizeReading(SymbolInfoDouble(_Symbol, SYMBOL_BID), g_saneBid, g_bidPending, g_bidRejectStreak, g_bidInit, maxPriceJump, "Bid");
-   g_saneAsk = SanitizeReading(SymbolInfoDouble(_Symbol, SYMBOL_ASK), g_saneAsk, g_askPending, g_askRejectStreak, g_askInit, maxPriceJump, "Ask");
+   g_saneBid = SanitizeReading(SymbolInfoDouble(_Symbol, SYMBOL_BID), g_saneBid, g_bidPending, g_bidRejectStreak, g_bidHoldCount, g_bidInit, maxPriceJump, "Bid");
+   g_saneAsk = SanitizeReading(SymbolInfoDouble(_Symbol, SYMBOL_ASK), g_saneAsk, g_askPending, g_askRejectStreak, g_askHoldCount, g_askInit, maxPriceJump, "Ask");
 
    double budget      = GetTightestMaxLossBudget();
    double maxPnlJump  = (budget > 0.0) ? budget * (InpMaxPnlJumpPercent / 100.0) : 0.0; // no budget configured → guard inert
-   g_saneFloatingPnl  = SanitizeReading(GetRawFloatingPnL(), g_saneFloatingPnl, g_pnlPending, g_pnlRejectStreak, g_pnlInit, maxPnlJump, "Floating PnL");
+   g_saneFloatingPnl  = SanitizeReading(GetRawFloatingPnL(), g_saneFloatingPnl, g_pnlPending, g_pnlRejectStreak, g_pnlHoldCount, g_pnlInit, maxPnlJump, "Floating PnL");
   }
 
 //==================================================================
